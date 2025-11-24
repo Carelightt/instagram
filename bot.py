@@ -250,7 +250,7 @@ def bot_loop():
             except:
                 pass
 
-            # ==========================================================
+# ==========================================================
             # 5. TAKİPÇİ KONTROLÜ (1 SAATTE BİR)
             # ==========================================================
             if current_time - last_follower_check_time >= FOLLOWER_CHECK_INTERVAL:
@@ -265,25 +265,48 @@ def bot_loop():
                     old_followers_ids = data.get("followers", [])
                     old_following_ids = data.get("following", [])
                     
+                    # --- DEĞİŞİKLİK BURADA ---
                     if old_followers_ids:
-                        # Yeni Gelen
+                        
+                        # --- ESKİ KAYIT VARSA (DEĞİŞİKLİK KONTROLÜ) ---
+                        
+                        # Yeni Gelen Takipçi
                         new_followers = set(curr_followers_ids) - set(old_followers_ids)
                         for uid in new_followers:
                             u = curr_followers[uid]
-                            send_telegram_message(f"🚨 YENİ TAKİPÇİ: {u.username} ({u.full_name})")
+                            send_telegram_message(f"🚨 YENİ TAKİPÇİ GELDİ!\n👤 Kullanıcı: {u.username}\nİsim: {u.full_name}")
 
-                        # Yeni Giden (Takip Ettiği)
+                        # Takipten Çıkan (İstersen açabilirsin)
+                        lost_followers = set(old_followers_ids) - set(curr_followers_ids)
+                        if lost_followers:
+                             send_telegram_message(f"❌ BİRİ TAKİPTEN ÇIKTI! ({len(lost_followers)} kişi)")
+
+                        # Yeni Takip Ettiği (En önemlisi)
                         new_following = set(curr_following_ids) - set(old_following_ids)
                         for uid in new_following:
                             u = curr_following[uid]
                             send_telegram_message(f"👀 YENİ TAKİP ETTİ: {u.username}\nLink: https://instagram.com/{u.username}")
+                            
+                    else:
+                        # --- ESKİ KAYIT YOKSA (İLK ÇALIŞMA - ÖZET RAPOR) ---
+                        msg = (f"🕵️‍♂️ OPERASYON BAŞLADI!\n"
+                               f"🎯 Hedef: {TARGET_USERNAME}\n"
+                               f"📊 Takipçi Sayısı: {len(curr_followers_ids)}\n"
+                               f"👉 Takip Ettikleri: {len(curr_following_ids)}\n"
+                               f"✅ İlk veriler kaydedildi. Bundan sonraki değişikliklerde haber vereceğim.")
+                        send_telegram_message(msg)
+                    # -------------------------
 
                     data["followers"] = curr_followers_ids
                     data["following"] = curr_following_ids
                     last_follower_check_time = current_time
+                    
+                    print("Takipçi verileri güncellendi.")
+                    
                 except Exception as e:
                     print(f"Takipçi hata: {e}")
-
+                    # Hata mesajını telegrama atmasın, logda kalsın yeter.
+            
             # VERİYİ KAYDET
             save_data(data)
             print(f"Tur bitti. {MEDIA_CHECK_INTERVAL} saniye bekleniyor.")
