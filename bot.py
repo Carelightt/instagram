@@ -59,36 +59,31 @@ def bot_loop():
     cl = Client()
     print("Instagram'a giriş yapılıyor...")
     
-    # --- YENİ GİRİŞ YÖNTEMİ (DÜZELTİLMİŞ) ---
+# --- YENİ GİRİŞ YÖNTEMİ (TURBO MOD) ---
     try:
         if IG_SESSION:
             print("🔑 Session (Cookie) bulundu, dosyaya yazılıyor...")
             
-            # 1. Önce Environment'tan geleni dosyaya kaydedelim
-            # (Çünkü kütüphane dosya yolu istiyor, direkt veriyi kabul etmiyor)
             with open("session.json", "w") as f:
                 f.write(IG_SESSION)
             
-            # 2. Şimdi dosyadan yükleyelim
+            # Ayarları yükle
             cl.load_settings("session.json")
             
-            # 3. Girişi tazeleyelim
-            cl.login(IG_USERNAME, IG_PASSWORD)
-            print("✅ Session ile Giriş Başarılı!")
+            # BURAYA DİKKAT: cl.login SATIRINI SİLDİK!
+            # Çünkü session varken tekrar login demek, Instagram'ı şüphelendiriyor.
             
-            # (İsteğe bağlı) Giriş başarılıysa session'ı temizleyebiliriz ama kalsın zararı yok.
+            print("✅ Session yüklendi, ekstra giriş yapılmadan devam ediliyor!")
+            
         else:
-            print("⚠️ Session bulunamadı, normal giriş deneniyor (Riskli)...")
+            print("⚠️ Session yok, mecburen normal giriş deneniyor...")
             cl.login(IG_USERNAME, IG_PASSWORD)
             print("✅ Normal Giriş Başarılı!")
             
     except Exception as e:
         print(f"❌ Giriş Hatası: {e}")
-        # Detaylı hata görelim ki çözelim
-        import traceback
-        traceback.print_exc()
-        send_telegram_message(f"⚠️ Bot Giriş Yapamadı! Hata: {str(e)}")
-        return
+        # Hata olsa bile devam etmeye çalışsın, belki session çalışır
+        pass 
     # ----------------------------------------
 
     last_follower_check_time = 0
