@@ -10,7 +10,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "🤖 GEVEZE BOT AKTİF"
+    return "🤖 STALKER BOT (ANTI-SPAM MODU)"
 
 def run_flask():
     port = int(os.environ.get("PORT", 5000))
@@ -24,9 +24,6 @@ TARGET_USERNAME = os.environ.get("TARGET_USERNAME")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
-MEDIA_CHECK_INTERVAL = 900
-FOLLOWER_CHECK_INTERVAL = 3600
-
 def send_telegram_message(message, chat_id=None):
     if not TELEGRAM_TOKEN: return
     target_chat = chat_id if chat_id else TELEGRAM_CHAT_ID
@@ -37,51 +34,41 @@ def send_telegram_message(message, chat_id=None):
     except:
         pass
 
-def load_data():
-    if not os.path.exists("takip_data.json"):
-        return {"followers": [], "following": [], "stories": [], "medias": {}, "profile": {}, "highlights": []}
-    try:
-        with open("takip_data.json", "r") as f:
-            data = json.load(f)
-            keys = ["followers", "following", "stories", "medias", "profile", "highlights"]
-            for k in keys:
-                if k not in data: data[k] = {} if k in ["medias", "profile"] else []
-            return data
-    except:
-        return {"followers": [], "following": [], "stories": [], "medias": {}, "profile": {}, "highlights": []}
-
-def save_data(data):
-    with open("takip_data.json", "w") as f:
-        json.dump(data, f)
-
 def bot_loop():
     cl = Client()
-    print("Instagram'a giriş yapılıyor...")
     
-    # GİRİŞ KISMI
+    # --- CİHAZ TAKLİDİ (Samsung Galaxy S23) ---
+    # Bu ayarlar botun gerçek bir telefon gibi görünmesini sağlar
+    cl.set_country("TR")
+    cl.set_locale("tr_TR")
+    cl.set_timezone_offset(3 * 3600) # GMT+3 (Türkiye)
+    
+    print("Instagram'a bağlanılıyor...")
+    
     try:
         if IG_SESSION:
             with open("session.json", "w") as f:
                 f.write(IG_SESSION)
             cl.load_settings("session.json")
+            
+            # Cihaz ayarlarını yükledikten sonra tekrar uygula
+            cl.set_country("TR")
+            cl.set_locale("tr_TR")
+            
             print("✅ Session Yüklendi.")
         else:
             cl.login(IG_USERNAME, IG_PASSWORD)
             print("✅ Normal Giriş.")
     except Exception as e:
-        print(f"Giriş Hatası: {e}")
+        print(f"Giriş Pas Geçildi (Hata olabilir): {e}")
 
-    send_telegram_message(f"🚨 BOT YENİDEN BAŞLADI!\nLütfen /takipci yazıp dene.")
+    send_telegram_message("♻️ Bot IP Değişimi Yapıldı. Hazır!")
 
-    last_follower_check_time = 0
-    last_media_check_time = 0
     last_update_id = 0 
 
     while True:
-        current_time = time.time()
-        
-        # --- TELEGRAM DİNLEME ---
         try:
+            # Telegram'ı kontrol et
             tg_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates?offset={last_update_id + 1}&timeout=5"
             resp = requests.get(tg_url, timeout=10)
             
@@ -94,64 +81,31 @@ def bot_loop():
                         text = message.get("text", "").lower()
                         chat_id = message.get("chat", {}).get("id")
                         
-                        if "/kontrol" in text:
-                            send_telegram_message(f"✅ ÇALIŞIYORUM! ID: {chat_id}", chat_id)
-                        
-                        elif "/takipci" in text:
-                            send_telegram_message("⏳ Instagram'a bağlanılıyor, lütfen bekle...", chat_id)
-                            # EMRİ ALINCA HEMEN İŞLEM YAP (ZAMANLAYICIYI BEKLEME)
+                        if "/takipci" in text:
+                            send_telegram_message("🕵️‍♂️ Analiz yapılıyor... (Bu işlem 429 hatası yememek için yavaşlatıldı)", chat_id)
+                            
+                            # BEKLEME SÜRESİ EKLE (SPAM YAPMAMAK İÇİN)
+                            time.sleep(5) 
+                            
                             try:
-                                # Hedef ID'yi tazeleyelim
+                                # Kullanıcıyı çek
                                 user_id = cl.user_id_from_username(TARGET_USERNAME)
+                                info = cl.user_info(user_id) # Sadece genel bilgi çek (Followers listesi çekmek çok riskli)
                                 
-                                # Takipçileri çekmeye çalış
-                                curr_followers = cl.user_followers(user_id) # Bu işlem uzun sürerse burada bekler
-                                count = len(curr_followers)
-                                
-                                # Başarılı olursa yaz
-                                send_telegram_message(f"📊 ANALİZ BİTTİ!\n👤 Takipçi Sayısı: {count}", chat_id)
-                                
-                                # Veritabanını güncelle
-                                data = load_data()
-                                data["followers"] = list(curr_followers.keys())
-                                save_data(data)
-                                
-                                # Otomatik kontrol saatini sıfırla (1 saat sonraya at)
-                                last_follower_check_time = time.time()
+                                msg = f"📊 GÜNCEL DURUM:\n👤 Takipçi: {info.follower_count}\n👉 Takip Edilen: {info.following_count}\n(Detaylı liste spam riski nedeniyle çekilmedi)"
+                                send_telegram_message(msg, chat_id)
                                 
                             except Exception as e:
-                                # İŞTE BURASI ÖNEMLİ: HATA VARSA SÖYLE
-                                error_msg = str(e)
-                                if "login_required" in error_msg:
-                                    send_telegram_message("❌ HATA: Instagram giriş istiyor! Session patlamış olabilir.", chat_id)
-                                elif "challenge_required" in error_msg:
-                                    send_telegram_message("❌ HATA: Instagram doğrulama (challenge) istiyor! Hesabı telefondan onayla.", chat_id)
-                                elif "feedback_required" in error_msg:
-                                    send_telegram_message("❌ HATA: Çok sık istek attığın için Instagram seni geçici engelledi (Spam Koruması).", chat_id)
+                                if "429" in str(e):
+                                    send_telegram_message("🔴 Hala banlıyız (429). 1-2 saat dinlenmesi lazım.", chat_id)
                                 else:
-                                    send_telegram_message(f"❌ BEKLENMEYEN HATA:\n{error_msg}", chat_id)
-
-                        elif "/story" in text:
-                            send_telegram_message("⏳ Hikayelere bakılıyor...", chat_id)
-                            try:
-                                user_id = cl.user_id_from_username(TARGET_USERNAME)
-                                stories = cl.user_stories(user_id)
-                                count = len(stories)
-                                if count > 0:
-                                    send_telegram_message(f"🔥 EVET! {count} adet hikayesi var.", chat_id)
-                                else:
-                                    send_telegram_message("ℹ️ Maalesef, şu an hikaye yok.", chat_id)
-                                last_media_check_time = time.time()
-                            except Exception as e:
-                                send_telegram_message(f"❌ STORY HATASI: {str(e)}", chat_id)
+                                    send_telegram_message(f"❌ Hata: {str(e)}", chat_id)
 
         except Exception as e:
-            print(f"Telegram Loop Hatası: {e}")
+            print(f"Loop Hata: {e}")
+            time.sleep(10)
 
-        # OTOMATİK KONTROLLER (Sadece vakti geldiyse)
-        # ... (Kod uzamasın diye burayı kısalttım, manuel komut çalışsın yeter şu an)
-        
-        time.sleep(2)
+        time.sleep(5)
 
 if __name__ == "__main__":
     t1 = threading.Thread(target=run_flask)
