@@ -10,7 +10,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "🚀 PROFILE-API MODU AKTİF!"
+    return "🚀 USERINFO MODU AKTİF!"
 
 def run_flask():
     port = int(os.environ.get("PORT", 5000))
@@ -21,7 +21,7 @@ TARGET_USERNAME = os.environ.get("TARGET_USERNAME")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
-# 7 ANAHTAR
+# 7 ANAHTAR (Aynı kalıyor)
 API_KEYS = [
     "524ea9ed97mshea5622f7563ab91p1c8a9bjsn4393885af79a",
     "5afb01f5damsh15c163415ce684bp176beajsne525580cab71",
@@ -55,29 +55,24 @@ def call_rapid_api(endpoint, payload_dict, chat_id=None):
                 "x-rapidapi-host": RAPID_HOST,
                 "Content-Type": "application/json"
             }
-            
             # Timeout 10 saniye
             response = requests.post(url, json=payload_dict, headers=headers, timeout=10)
             
-            # 200 OK - Başarılı
             if response.status_code == 200:
                 return response.json()
             
-            # Limit Doldu (429) -> Diğer keye geç
             if response.status_code == 429:
-                print(f"⚠️ Key {i+1} Limit Doldu.")
                 continue
 
-            # Diğer Hatalar
-            # Sadece debug için logluyoruz, kullanıcıya spam atmasın
-            print(f"⚠️ API Hatası (Key {i+1}): {response.status_code} - {response.text}")
+            # Diğer hataları logla ama kullanıcıyı boğma
+            print(f"Key {i+1} Hata: {response.status_code}")
             continue
 
         except Exception as e:
-            print(f"❌ Bağlantı Hatası (Key {i+1}): {e}")
+            print(f"Key {i+1} Bağlantı: {e}")
             continue
 
-    if chat_id: send_telegram_message("🚫 TÜM ANAHTARLAR DENENDİ, VERİ GELMEDİ!", chat_id)
+    if chat_id: send_telegram_message("🚫 TÜM ANAHTARLAR DENENDİ, VERİ YOK!", chat_id)
     return None
 
 def load_data():
@@ -89,24 +84,59 @@ def load_data():
 def save_data(data):
     with open("data.json", "w") as f: json.dump(data, f)
 
+# --- VERİ AYIKLAMA (PARSING) ---
+def parse_instagram_data(data):
+    """
+    Senin attığın JSON yapısına göre veriyi cımbızla çeker.
+    Yol: result -> [0] -> user -> follower_count
+    """
+    try:
+        # 1. Katman: result listesi
+        result_list = data.get('result', [])
+        if not result_list or len(result_list) == 0:
+            return None
+        
+        # 2. Katman: Listenin ilk elemanı
+        first_item = result_list[0]
+        
+        # 3. Katman: user objesi
+        user_obj = first_item.get('user')
+        if not user_obj:
+            return None
+            
+        # 4. Katman: Hedef veriler
+        return {
+            "followers": user_obj.get('follower_count', 0),
+            "following": user_obj.get('following_count', 0),
+            "full_name": user_obj.get('full_name', TARGET_USERNAME),
+            "bio": user_obj.get('biography', ""),
+            "posts": user_obj.get('media_count', 0),
+            "is_private": user_obj.get('is_private', False)
+        }
+    except Exception as e:
+        print(f"Parse Hatası: {e}")
+        return None
+
 # --- KOMUTLAR ---
 def handle_takipci(chat_id):
-    send_telegram_message(f"🔍 {TARGET_USERNAME} profili çekiliyor...", chat_id)
+    send_telegram_message(f"🔍 {TARGET_USERNAME} (UserInfo) çekiliyor...", chat_id)
     
-    # DİKKAT: ARTIK 'userInfo' DEĞİL 'profile' KULLANIYORUZ
-    data = call_rapid_api("/api/instagram/profile", {"username": TARGET_USERNAME}, chat_id)
+    # SENİN BULDUĞUN DOĞRU ENDPOINT
+    data = call_rapid_api("/api/instagram/userInfo", {"username": TARGET_USERNAME}, chat_id)
     
     if data:
-        # API bazen direkt döner, bazen result içinde.
-        res = data if 'username' in data else data.get('result') or data.get('data')
+        # Veriyi cımbızla çekelim
+        parsed = parse_instagram_data(data)
         
-        if not res:
-            send_telegram_message(f"❌ Veri boş geldi! Kullanıcı adı doğru mu?", chat_id)
+        if not parsed:
+            # Ham veriyi görelim ki hata neredeymiş anlayalım
+            debug_cut = str(data)[:500]
+            send_telegram_message(f"❌ Veri yapısı bozuk veya kullanıcı yok.\nGelen: {debug_cut}", chat_id)
             return
 
-        fol = res.get('follower_count', 0)
-        fng = res.get('following_count', 0)
-        name = res.get('full_name', TARGET_USERNAME)
+        fol = parsed["followers"]
+        fng = parsed["following"]
+        name = parsed["full_name"]
         
         send_telegram_message(f"📊 RAPOR ({name}):\n👤 Takipçi: {fol}\n👉 Takip Edilen: {fng}", chat_id)
         
@@ -115,7 +145,7 @@ def handle_takipci(chat_id):
         d["following"] = fng
         save_data(d)
     else:
-        # Hata mesajı call_rapid_api içinde atılıyor zaten
+        # call_rapid_api zaten hata mesajı atıyor
         pass
 
 def handle_story(chat_id):
@@ -123,8 +153,10 @@ def handle_story(chat_id):
     data = call_rapid_api("/api/instagram/stories", {"username": TARGET_USERNAME}, chat_id)
     
     if data:
-        sl = data if isinstance(data, list) else data.get('result', []) or data.get('data', [])
+        # Story yapısı da genelde result listesi içindedir
+        sl = data.get('result', [])
         count = len(sl)
+        
         if count > 0:
             send_telegram_message(f"🔥 {count} Adet Aktif Hikaye Var!", chat_id)
         else:
@@ -136,25 +168,28 @@ def handle_story(chat_id):
     else:
         pass
 
+# --- OTOMATİK KONTROL ---
 def check_full_status():
-    # Otomatik kontrol için de 'profile' kullanıyoruz
-    data = call_rapid_api("/api/instagram/profile", {"username": TARGET_USERNAME})
+    data = call_rapid_api("/api/instagram/userInfo", {"username": TARGET_USERNAME})
     if data:
-        res = data if 'username' in data else data.get('result') or data.get('data')
-        if res:
-            fol = res.get('follower_count', 0)
+        parsed = parse_instagram_data(data)
+        if parsed:
+            fol = parsed["followers"]
             old = load_data().get("followers", 0)
             
             if fol != old and old != 0:
                 diff = fol - old
-                send_telegram_message(f"🚨 TAKİPÇİ DEĞİŞTİ!\nYeni: {fol} ({diff:+})")
+                emoji = "🟢" if diff > 0 else "🔴"
+                send_telegram_message(f"{emoji} TAKİPÇİ DEĞİŞTİ!\nYeni: {fol} ({diff:+})")
             
+            # Veriyi güncelle
             d = load_data()
             d["followers"] = fol
             save_data(d)
 
+# --- BOT DÖNGÜSÜ ---
 def bot_loop():
-    print("🚀 PROFILE MODU BAŞLATILDI")
+    print("🚀 USERINFO MODU BAŞLATILDI")
     last_update_id = 0
     last_auto_check = time.time()
 
