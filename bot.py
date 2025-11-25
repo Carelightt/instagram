@@ -1,17 +1,16 @@
 import time
 import json
-import http.client
 import os
 import threading
 import requests
 from flask import Flask
 
-# --- FLASK (Render İçin) ---
+# --- FLASK ---
 app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "🚀 7-MOTORLU + KOMUTLU BOT AKTİF!"
+    return "🚀 7-MOTORLU + LOGLU BOT AKTİF!"
 
 def run_flask():
     port = int(os.environ.get("PORT", 5000))
@@ -22,7 +21,7 @@ TARGET_USERNAME = os.environ.get("TARGET_USERNAME")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
-# 🔥 7 ADET API ANAHTARI
+# 7 ADET API ANAHTARI
 API_KEYS = [
     "524ea9ed97mshea5622f7563ab91p1c8a9bjsn4393885af79a",
     "5afb01f5damsh15c163415ce684bp176beajsne525580cab71",
@@ -33,8 +32,6 @@ API_KEYS = [
     "89b8e89b68mshde52c44e2beffadp17f4b4jsn35a7d495e79e"
 ]
 RAPID_HOST = "instagram120.p.rapidapi.com"
-
-# ⚡ OTOMATİK KONTROL SÜRESİ: 25 Dakika
 CHECK_INTERVAL = 1500 
 
 def send_telegram_message(message, chat_id=None):
@@ -43,37 +40,41 @@ def send_telegram_message(message, chat_id=None):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     data = {"chat_id": target_chat, "text": message}
     try:
-        requests.post(url, data=data)
+        requests.post(url, data=data, timeout=10)
     except:
         pass
 
-# --- API İSTEK FONKSİYONU ---
+# --- YENİ API İSTEK FONKSİYONU (Timeout Özellikli) ---
 def call_rapid_api(endpoint, payload_dict):
+    url = f"https://{RAPID_HOST}{endpoint}"
+    
     for i, key in enumerate(API_KEYS):
+        print(f"🔄 Deneniyor: Key {i+1} -> {endpoint}") # LOG
         try:
-            conn = http.client.HTTPSConnection(RAPID_HOST)
-            payload = json.dumps(payload_dict)
             headers = {
                 'x-rapidapi-key': key,
                 'x-rapidapi-host': RAPID_HOST,
                 'Content-Type': "application/json"
             }
-            conn.request("POST", endpoint, payload, headers)
-            res = conn.getresponse()
-            data = res.read()
-            json_data = json.loads(data.decode("utf-8"))
             
-            # Limit kontrolü
-            if isinstance(json_data, dict) and "message" in json_data and "exceeded" in str(json_data["message"]):
-                print(f"⚠️ Key {i+1} Limit Doldu. Sıradakine geçiliyor...")
+            # BURADA 15 SANİYE ZAMAN AŞIMI KOYDUK
+            # Eğer 15 saniyede cevap gelmezse hata verip diğer anahtara geçer.
+            response = requests.post(url, json=payload_dict, headers=headers, timeout=15)
+            
+            print(f"📡 Key {i+1} Cevap Kodu: {response.status_code}") # LOG
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                print(f"⚠️ Hata Detayı: {response.text}") # LOG
+                # Eğer 429 (Limit Doldu) veya 403 (Yasaklı) ise devam et
                 continue
-            
-            return json_data
+
         except Exception as e:
-            print(f"Hata (Key {i+1}): {e}")
+            print(f"❌ Bağlantı Hatası (Key {i+1}): {e}")
             continue
 
-    print("❌ TÜM KEYLER BAŞARISIZ!")
+    print("❌❌ TÜM KEYLER DENENDİ VE BAŞARISIZ OLDU!")
     return None
 
 # --- VERİ YÖNETİMİ ---
@@ -90,16 +91,19 @@ def save_data(data):
     with open("data.json", "w") as f:
         json.dump(data, f)
 
-# --- FULL OTOMATİK KONTROL (4 KREDİ YER) ---
+# --- FULL OTOMATİK KONTROL ---
 def check_full_status(manual=False, chat_id=None):
     print("🕵️‍♂️ Full kontrol yapılıyor...")
     
-    # 1. Profil
     user_data = call_rapid_api("/api/instagram/userInfo", {"username": TARGET_USERNAME})
-    if not user_data: return
+    if not user_data: 
+        if manual: send_telegram_message("❌ API'lerin hepsi meşgul veya hata verdi.", chat_id)
+        return
 
     result = user_data if 'username' in user_data else user_data.get('result') or user_data.get('data')
-    if not result: return
+    if not result: 
+        if manual: send_telegram_message("❌ API boş veri döndü.", chat_id)
+        return
 
     curr_fol = result.get('follower_count', 0)
     curr_fng = result.get('following_count', 0)
@@ -109,7 +113,6 @@ def check_full_status(manual=False, chat_id=None):
     old_data = load_data()
     msgs = []
     
-    # Değişim Analizi
     if curr_fol != old_data.get("followers", 0) and old_data.get("followers", 0) != 0:
         diff = curr_fol - old_data.get("followers", 0)
         msgs.append(f"{'🟢' if diff>0 else '🔴'} Takipçi: {curr_fol} ({diff:+})")
@@ -124,7 +127,7 @@ def check_full_status(manual=False, chat_id=None):
     if curr_posts > old_data.get("posts_count", 0) and old_data.get("posts_count", 0) != 0:
         msgs.append(f"📸 YENİ GÖNDERİ! (Toplam: {curr_posts})")
     
-    # 2. Story
+    # Story ve Highlight için de aynı sağlamlıkta çağrı
     story_data = call_rapid_api("/api/instagram/stories", {"username": TARGET_USERNAME})
     curr_story = 0
     if story_data:
@@ -133,7 +136,6 @@ def check_full_status(manual=False, chat_id=None):
         if curr_story > old_data.get("latest_story_count", 0):
             msgs.append(f"🔥 YENİ HİKAYE! (Aktif: {curr_story})")
 
-    # 3. Highlights
     hl_data = call_rapid_api("/api/instagram/highlights", {"username": TARGET_USERNAME})
     curr_hl = 0
     if hl_data:
@@ -155,20 +157,23 @@ def check_full_status(manual=False, chat_id=None):
 # --- KOMUT İŞLEYİCİLERİ ---
 def handle_takipci(chat_id):
     send_telegram_message("🔍 Takipçiler sayılıyor... (1 Kredi)", chat_id)
+    print("--- Takipçi Komutu Başladı ---") # LOG
+    
     data = call_rapid_api("/api/instagram/userInfo", {"username": TARGET_USERNAME})
+    
     if data:
         res = data if 'username' in data else data.get('result') or data.get('data')
         fol = res.get('follower_count', 0)
         fng = res.get('following_count', 0)
         send_telegram_message(f"📊 RAPOR:\n👤 Takipçi: {fol}\n👉 Takip Edilen: {fng}", chat_id)
         
-        # Veriyi güncelle ki otomatik kontrol şaşırmasın
         d = load_data()
         d["followers"] = fol
         d["following"] = fng
         save_data(d)
     else:
-        send_telegram_message("❌ Veri alınamadı.", chat_id)
+        print("--- Veri Boş Döndü ---") # LOG
+        send_telegram_message("❌ Veri alınamadı. (Loglara bak)", chat_id)
 
 def handle_story(chat_id):
     send_telegram_message("🔍 Hikayelere bakılıyor... (1 Kredi)", chat_id)
@@ -189,17 +194,16 @@ def handle_story(chat_id):
 
 # --- BOT LOOP ---
 def bot_loop():
-    print("🚀 Komutlu Mod Başlatıldı...")
+    print("🚀 Komutlu + Loglu Mod Başlatıldı...")
     last_update_id = 0
     last_auto_check = time.time()
 
     while True:
         current_time = time.time()
         
-        # Telegram Dinleme
         try:
             tg_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates?offset={last_update_id + 1}&timeout=5"
-            resp = requests.get(tg_url).json()
+            resp = requests.get(tg_url, timeout=10).json() # Timeout eklendi
             if resp.get("ok"):
                 for result in resp["result"]:
                     last_update_id = result["update_id"]
@@ -208,7 +212,7 @@ def bot_loop():
                     chat_id = message.get("chat", {}).get("id")
                     
                     if "/kontrol" in text:
-                        send_telegram_message("🏎️ Full kontrol yapılıyor... (4 Kredi)", chat_id)
+                        send_telegram_message("🏎️ Full kontrol (4 Kredi)...", chat_id)
                         check_full_status(manual=True, chat_id=chat_id)
                     
                     elif "/takipci" in text or "/takip" in text:
@@ -217,10 +221,10 @@ def bot_loop():
                     elif "/story" in text:
                         handle_story(chat_id)
 
-        except:
-            pass
+        except Exception as e:
+            print(f"Telegram Loop Hatası: {e}")
+            time.sleep(1) # Hata olursa az bekle
         
-        # Otomatik Kontrol (25 Dakikada bir)
         if current_time - last_auto_check >= CHECK_INTERVAL:
             check_full_status(manual=False)
             last_auto_check = current_time
