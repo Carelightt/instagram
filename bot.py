@@ -10,7 +10,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "🚀 REQUESTS NATIVE MOD AKTİF!"
+    return "🚀 PROFILE-API MODU AKTİF!"
 
 def run_flask():
     port = int(os.environ.get("PORT", 5000))
@@ -21,7 +21,7 @@ TARGET_USERNAME = os.environ.get("TARGET_USERNAME")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
-# 7 ADET ANAHTARIN
+# 7 ANAHTAR
 API_KEYS = [
     "524ea9ed97mshea5622f7563ab91p1c8a9bjsn4393885af79a",
     "5afb01f5damsh15c163415ce684bp176beajsne525580cab71",
@@ -45,34 +45,31 @@ def send_telegram_message(message, chat_id=None):
     except:
         pass
 
-# --- SENİN ATTIĞIN ÖRNEK KOD YAPISI ---
-def call_rapid_api(endpoint, payload_dict):
+def call_rapid_api(endpoint, payload_dict, chat_id=None):
     url = f"https://{RAPID_HOST}{endpoint}"
     
-    # 7 Anahtarı Sırayla Dene
     for i, key in enumerate(API_KEYS):
         try:
-            # Senin attığın headers yapısının AYNISI
             headers = {
                 "x-rapidapi-key": key,
                 "x-rapidapi-host": RAPID_HOST,
                 "Content-Type": "application/json"
             }
             
-            # Senin attığın requests yapısının AYNISI (json=payload kullanıyoruz)
-            # Timeout ekledim ki donmasın (10 sn)
+            # Timeout 10 saniye
             response = requests.post(url, json=payload_dict, headers=headers, timeout=10)
             
-            # 1. Bağlantı Başarılı mı? (200 OK)
+            # 200 OK - Başarılı
             if response.status_code == 200:
                 return response.json()
             
-            # 2. Limit Dolduysa (429) -> Diğer keye geç
+            # Limit Doldu (429) -> Diğer keye geç
             if response.status_code == 429:
-                print(f"⚠️ Key {i+1} Limit Doldu. Sıradakine geçiliyor...")
+                print(f"⚠️ Key {i+1} Limit Doldu.")
                 continue
 
-            # 3. Diğer Hatalar (Loglayıp devam edelim)
+            # Diğer Hatalar
+            # Sadece debug için logluyoruz, kullanıcıya spam atmasın
             print(f"⚠️ API Hatası (Key {i+1}): {response.status_code} - {response.text}")
             continue
 
@@ -80,10 +77,9 @@ def call_rapid_api(endpoint, payload_dict):
             print(f"❌ Bağlantı Hatası (Key {i+1}): {e}")
             continue
 
-    print("❌ TÜM ANAHTARLAR DENENDİ, SONUÇ YOK!")
+    if chat_id: send_telegram_message("🚫 TÜM ANAHTARLAR DENENDİ, VERİ GELMEDİ!", chat_id)
     return None
 
-# --- DATA YÖNETİMİ ---
 def load_data():
     if not os.path.exists("data.json"): return {}
     try:
@@ -93,19 +89,19 @@ def load_data():
 def save_data(data):
     with open("data.json", "w") as f: json.dump(data, f)
 
-# --- KOMUT İŞLEYİCİLERİ ---
+# --- KOMUTLAR ---
 def handle_takipci(chat_id):
-    send_telegram_message(f"🔍 {TARGET_USERNAME} analiz ediliyor...", chat_id)
+    send_telegram_message(f"🔍 {TARGET_USERNAME} profili çekiliyor...", chat_id)
     
-    # API Çağrısı
-    data = call_rapid_api("/api/instagram/userInfo", {"username": TARGET_USERNAME})
+    # DİKKAT: ARTIK 'userInfo' DEĞİL 'profile' KULLANIYORUZ
+    data = call_rapid_api("/api/instagram/profile", {"username": TARGET_USERNAME}, chat_id)
     
     if data:
-        # API bazen direkt data, bazen result döner. Garantileyelim.
+        # API bazen direkt döner, bazen result içinde.
         res = data if 'username' in data else data.get('result') or data.get('data')
         
         if not res:
-            send_telegram_message(f"❌ Kullanıcı Bulunamadı! (Veri boş)", chat_id)
+            send_telegram_message(f"❌ Veri boş geldi! Kullanıcı adı doğru mu?", chat_id)
             return
 
         fol = res.get('follower_count', 0)
@@ -114,17 +110,17 @@ def handle_takipci(chat_id):
         
         send_telegram_message(f"📊 RAPOR ({name}):\n👤 Takipçi: {fol}\n👉 Takip Edilen: {fng}", chat_id)
         
-        # Kaydet
         d = load_data()
         d["followers"] = fol
         d["following"] = fng
         save_data(d)
     else:
-        send_telegram_message("❌ Veri çekilemedi (Tüm keyler hata verdi).", chat_id)
+        # Hata mesajı call_rapid_api içinde atılıyor zaten
+        pass
 
 def handle_story(chat_id):
     send_telegram_message("🔍 Hikaye kontrol...", chat_id)
-    data = call_rapid_api("/api/instagram/stories", {"username": TARGET_USERNAME})
+    data = call_rapid_api("/api/instagram/stories", {"username": TARGET_USERNAME}, chat_id)
     
     if data:
         sl = data if isinstance(data, list) else data.get('result', []) or data.get('data', [])
@@ -138,24 +134,27 @@ def handle_story(chat_id):
         d["latest_story_count"] = count
         save_data(d)
     else:
-        send_telegram_message("❌ Veri çekilemedi.", chat_id)
+        pass
 
-# --- OTOMATİK KONTROL ---
 def check_full_status():
-    data = call_rapid_api("/api/instagram/userInfo", {"username": TARGET_USERNAME})
+    # Otomatik kontrol için de 'profile' kullanıyoruz
+    data = call_rapid_api("/api/instagram/profile", {"username": TARGET_USERNAME})
     if data:
         res = data if 'username' in data else data.get('result') or data.get('data')
         if res:
             fol = res.get('follower_count', 0)
             old = load_data().get("followers", 0)
+            
             if fol != old and old != 0:
                 diff = fol - old
                 send_telegram_message(f"🚨 TAKİPÇİ DEĞİŞTİ!\nYeni: {fol} ({diff:+})")
-                save_data({"followers": fol})
+            
+            d = load_data()
+            d["followers"] = fol
+            save_data(d)
 
-# --- BOT DÖNGÜSÜ ---
 def bot_loop():
-    print("🚀 REQUESTS MODU BAŞLATILDI")
+    print("🚀 PROFILE MODU BAŞLATILDI")
     last_update_id = 0
     last_auto_check = time.time()
 
@@ -175,8 +174,7 @@ def bot_loop():
                     elif "/story" in text:
                         handle_story(chat_id)
                         
-        except Exception as e:
-            print(f"Loop Hatası: {e}")
+        except Exception:
             time.sleep(1)
         
         if time.time() - last_auto_check >= CHECK_INTERVAL:
