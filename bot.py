@@ -11,7 +11,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "🚀 V10 TAM LİSTE MODU AKTİF!"
+    return "🚀 V11 İNATÇI BOT AKTİF!"
 
 def run_flask():
     port = int(os.environ.get("PORT", 5000))
@@ -46,7 +46,7 @@ def calculate_time_ago(timestamp):
     if not timestamp: return ""
     try:
         diff = int(time.time()) - int(timestamp)
-        if diff < 60: return "(Şimdi)"
+        if diff < 60: return "(Az önce)"
         minutes = diff // 60
         hours = minutes // 60
         mins_left = minutes % 60
@@ -76,7 +76,7 @@ def deep_search(data, key):
             if res is not None: return res
     return None
 
-# --- API MODÜLLERİ ---
+# --- BASIC API ---
 def call_basic_api(endpoint, payload_dict):
     url = f"https://{HOST_BASIC}{endpoint}"
     for i, key in enumerate(ALL_KEYS):
@@ -91,24 +91,22 @@ def call_basic_api(endpoint, payload_dict):
         except: continue
     return None
 
-# --- PREMIUM API (SAYFALAMA DESTEKLİ) ---
+# --- PREMIUM API (PAGINATION FIXED) ---
 def fetch_full_list_premium(endpoint_type, user_id):
-    """
-    Sayfa sayfa gezerek TÜM listeyi çeker.
-    """
     url = f"https://{HOST_PREMIUM}/{endpoint_type}"
     all_usernames = []
     next_token = None
     page_count = 0
-    MAX_PAGES = 15 # Güvenlik kilidi (Sonsuz döngüye girmesin, 750 kişi çeker)
-
-    # Anahtarlar arasında döngü kurmak zor olduğu için pagination'da
-    # tek bir sağlam anahtarla bitirmeye çalışacağız, patlarsa diğerine geçer.
+    
+    # Güvenlik Limiti: Çok büyük hesaplarda sonsuz döngüye girmesin (Max 20 sayfa = ~1000 kişi)
+    MAX_PAGES = 20 
     
     current_key_index = 0
     
     while True:
-        if page_count >= MAX_PAGES: break
+        if page_count >= MAX_PAGES: 
+            print("⚠️ Maksimum sayfa sayısına ulaşıldı.")
+            break
         
         key = ALL_KEYS[current_key_index]
         querystring = {"user_id": str(user_id)}
@@ -117,31 +115,33 @@ def fetch_full_list_premium(endpoint_type, user_id):
 
         try:
             headers = {"x-rapidapi-key": key, "x-rapidapi-host": HOST_PREMIUM, "User-Agent": USER_AGENT}
-            response = requests.get(url, headers=headers, params=querystring, timeout=15)
+            response = requests.get(url, headers=headers, params=querystring, timeout=20)
             
+            # Eğer bu anahtar limit yediyse (429), diğerine geç ve AYNI sayfayı tekrar dene
             if response.status_code == 429 or response.status_code == 403:
-                # Bu anahtar bitti, diğerine geçip AYNI sayfayı tekrar dene
                 current_key_index = (current_key_index + 1) % len(ALL_KEYS)
-                print(f"⚠️ Key {current_key_index} limit yedi, değiştiriliyor...")
                 time.sleep(1)
                 continue
             
             if response.status_code != 200:
-                break # Başka hata varsa çık
+                break
 
             data = response.json()
             
-            # İsimleri topla
+            # İsimleri al
             new_users = parse_premium_list_chunk(data)
-            all_usernames.extend(new_users)
+            if new_users:
+                all_usernames.extend(new_users)
             
-            # Sonraki sayfa var mı?
+            # Sonraki sayfa bileti var mı?
             next_token = data.get("next_max_id")
+            
             if not next_token:
-                break # Liste bitti
+                break # Bilet yoksa liste bitmiştir
             
             page_count += 1
-            time.sleep(0.5) # API'yi boğmamak için minik bekleme
+            # API'yi boğmamak için bekle (Önemli!)
+            time.sleep(1.5)
 
         except Exception as e:
             print(f"Pagination Hatası: {e}")
@@ -149,7 +149,6 @@ def fetch_full_list_premium(endpoint_type, user_id):
             
     return list(set(all_usernames))
 
-# Sadece o anki sayfayı parse eder
 def parse_premium_list_chunk(raw_data):
     usernames = []
     try:
@@ -161,7 +160,7 @@ def parse_premium_list_chunk(raw_data):
     except: pass
     return usernames
 
-# --- PARSE ---
+# --- PARSE BASIC ---
 def parse_profile(data):
     try:
         fol = deep_search(data, "follower_count")
@@ -205,17 +204,19 @@ def save_data(data):
 
 # --- KOMUTLAR ---
 def handle_takipci(chat_id):
-    send_telegram_message(f"🔍 {TARGET_USERNAME} sayılar kontrol ediliyor...", chat_id)
+    send_telegram_message(f"🔍 {TARGET_USERNAME} sayılar çekiliyor...", chat_id)
     profile = get_robust_profile()
     d = load_data()
-    saved_fol = d.get("followers_count", 0)
-    saved_fng = d.get("following_count", 0)
     
     if profile:
-        fol = max(profile['followers'], saved_fol)
-        fng = max(profile['following'], saved_fng)
+        # Basic API her zaman doğru sayı verir, ona güven
+        fol = profile['followers']
+        fng = profile['following']
+        
         msg = f"📊 RAPOR ({profile['full_name']}):\n👤 Takipçi: {fol}\n👉 Takip Edilen: {fng}\n📅 {get_time_str()}"
         send_telegram_message(msg, chat_id)
+        
+        # Veritabanını güncelle
         d["followers_count"] = fol
         d["following_count"] = fng
         if "id" in profile: d["user_id"] = profile["id"]
@@ -238,38 +239,47 @@ def handle_story(chat_id):
                 time_msg = calculate_time_ago(last_taken)
                 send_telegram_message(f"🔥 {count} Adet Aktif Hikaye Var! {time_msg}", chat_id)
             else: send_telegram_message("ℹ️ Aktif hikaye yok.", chat_id)
-        else:
-            send_telegram_message("ℹ️ Aktif hikaye yok (Veri boş).", chat_id)
-    else:
-        send_telegram_message("❌ Veri alınamadı.", chat_id)
+        else: send_telegram_message("ℹ️ Aktif hikaye yok (Veri boş).", chat_id)
+    else: send_telegram_message("❌ Veri alınamadı.", chat_id)
 
 def handle_listem(chat_id):
     d = load_data()
     fng_list = d.get("following_list", [])
     fol_list = d.get("followers_list", [])
     
+    # Gerçek sayılarla listedeki sayıları karşılaştır
+    real_fol_count = d.get("followers_count", 0)
+    real_fng_count = d.get("following_count", 0)
+    
     if not fng_list and not fol_list:
         send_telegram_message("📂 Hafıza boş! /kontrol yazıp doldur.", chat_id)
         return
 
-    # Uzun mesajları bölmek için (Telegram 4096 karakter sınırı)
-    def send_chunk(header, items):
-        if not items: return
-        chunk = header
-        for item in items:
-            if len(chunk) + len(item) > 3500:
-                send_telegram_message(chunk, chat_id)
-                chunk = ""
-            chunk += f"{item}, "
-        if chunk: send_telegram_message(chunk[:-2], chat_id)
+    msg = f"📂 BOT HAFIZASI:\n\n"
+    
+    # Takip Edilen
+    msg += f"👉 Takip Edilen: {real_fng_count} (Listelenen: {len(fng_list)})\n"
+    if fng_list:
+        msg += ", ".join(fng_list[:50])
+        if len(fng_list) > 50: msg += f"\n... ve {len(fng_list)-50} kişi daha."
+    else: msg += "(Liste boş)"
+    
+    msg += "\n\n"
+    
+    # Takipçi
+    msg += f"👤 Takipçi: {real_fol_count} (Listelenen: {len(fol_list)})\n"
+    if fol_list:
+        msg += ", ".join(fol_list[:50])
+        if len(fol_list) > 50: msg += f"\n... ve {len(fol_list)-50} kişi daha."
+    else: msg += "(Liste boş)"
+    
+    send_telegram_message(msg, chat_id)
 
-    send_chunk(f"👉 {len(fng_list)} Takip Edilen:\n", fng_list)
-    send_chunk(f"👤 {len(fol_list)} Takipçi:\n", fol_list)
-
-# --- OTOMATİK ---
+# --- OTOMATİK / KONTROL ---
 def check_full_status(manual=False, chat_id=None):
     if manual: send_telegram_message("🕵️‍♂️ Manuel FBI Taraması (Tam Liste)...", chat_id)
     
+    # 1. BASIC API (Gerçek Sayılar)
     profile = get_robust_profile()
     if not profile:
         if manual: send_telegram_message("❌ Basic API Profil verisi vermedi.", chat_id)
@@ -287,6 +297,7 @@ def check_full_status(manual=False, chat_id=None):
         old_data["user_id"] = curr_id
         save_data(old_data)
 
+    # 2. DEĞİŞİM KONTROLÜ
     change = False
     if curr_fol != old_data.get("followers_count", 0): change = True
     if curr_fng != old_data.get("following_count", 0): change = True
@@ -295,68 +306,63 @@ def check_full_status(manual=False, chat_id=None):
     final_fol_list = old_data.get("followers_list", [])
     final_fng_list = old_data.get("following_list", [])
 
-    # LİSTE ÇEKME (PAGINATION ILE)
+    # 3. LİSTE ÇEKME (Sadece değişim varsa veya manuelse)
     if change or manual:
-        if manual: send_telegram_message("🔍 Tüm listeler çekiliyor (Sayfa sayfa)...", chat_id)
+        if manual: send_telegram_message("🔍 Liste çekiliyor (Pagination Aktif)...", chat_id)
         
-        # YENİ FONKSİYONLARI ÇAĞIRIYORUZ
-        new_fol_list = fetch_full_list_premium("followers", curr_id)
-        new_fng_list = fetch_full_list_premium("following", curr_id)
+        raw_fol_list = fetch_full_list_premium("followers", curr_id)
+        raw_fng_list = fetch_full_list_premium("following", curr_id)
         
-        # Takipçi Analizi
-        if new_fol_list:
-            diff_new = set(new_fol_list) - set(final_fol_list)
+        # Analiz - Takipçi
+        if raw_fol_list:
+            diff_new = set(raw_fol_list) - set(final_fol_list)
             for user in diff_new:
-                send_telegram_message(f"{user} ({TARGET_USERNAME})'yı takip etmeye başladı\n\n{get_time_str()}", chat_id)
+                send_telegram_message(f"🚨 {user} ({TARGET_USERNAME})'yı takip etmeye başladı\n📅 {get_time_str()}", chat_id)
             
-            if final_fol_list:
-                diff_lost = set(final_fol_list) - set(new_fol_list)
+            # Giden (Sadece liste çok eksik değilse mantıklı)
+            if len(final_fol_list) > 0 and len(raw_fol_list) > (len(final_fol_list) * 0.8):
+                diff_lost = set(final_fol_list) - set(raw_fol_list)
                 for user in diff_lost:
-                    send_telegram_message(f"{user} ({TARGET_USERNAME})'yı takipten çıktı\n\n{get_time_str()}", chat_id)
+                    send_telegram_message(f"❌ {user} ({TARGET_USERNAME})'yı takipten çıktı\n📅 {get_time_str()}", chat_id)
             
-            final_fol_list = new_fol_list
-            curr_fol = len(new_fol_list)
+            final_fol_list = raw_fol_list
 
-        # Takip Edilen Analizi
-        if new_fng_list:
-            diff_new = set(new_fng_list) - set(final_fng_list)
+        # Analiz - Takip Edilen
+        if raw_fng_list:
+            diff_new = set(raw_fng_list) - set(final_fng_list)
             for user in diff_new:
-                send_telegram_message(f"({TARGET_USERNAME}) {user}'i takip etmeye başladı\n\n{get_time_str()}", chat_id)
+                send_telegram_message(f"👀 ({TARGET_USERNAME}) {user}'i takip etmeye başladı\n📅 {get_time_str()}", chat_id)
             
-            if final_fng_list:
-                diff_lost = set(final_fng_list) - set(new_fng_list)
+            if len(final_fng_list) > 0:
+                diff_lost = set(final_fng_list) - set(raw_fng_list)
                 for user in diff_lost:
-                    send_telegram_message(f"({TARGET_USERNAME}) {user}'i takipten çıktı\n\n{get_time_str()}", chat_id)
+                    send_telegram_message(f"🚫 ({TARGET_USERNAME}) {user}'i takipten çıktı\n📅 {get_time_str()}", chat_id)
 
-            final_fng_list = new_fng_list
-            curr_fng = len(new_fng_list)
+            final_fng_list = raw_fng_list
 
+    # Diğer Kontroller
     if old_data.get("bio") and curr_bio != old_data["bio"]:
-        send_telegram_message(f"📝 BİYOGRAFİ DEĞİŞTİ!\nEski: {old_data['bio']}\nYeni: {curr_bio}")
+        send_telegram_message(f"📝 BİYOGRAFİ DEĞİŞTİ!\nEski: {old_data['bio']}\nYeni: {curr_bio}", chat_id)
     if curr_posts > old_data.get("posts_count", 0) and old_data.get("posts_count", 0) != 0:
         send_telegram_message("📸 YENİ GÖNDERİ PAYLAŞILDI!", chat_id)
 
-    # Story
+    # Story (Sadece Manuel veya Değişim Varsa Bilgi Verelim)
+    curr_story_count = old_data.get("latest_story_count", 0)
     story_data = call_basic_api("/api/instagram/stories", {"username": TARGET_USERNAME})
-    curr_story_count = 0
     if story_data:
         sl = deep_search(story_data, "result")
         if isinstance(sl, list):
             curr_story_count = len(sl)
             if curr_story_count > old_data.get("latest_story_count", 0):
-                last_taken = 0
-                for s in sl:
-                    taken = s.get('taken_at') or s.get('taken_at_timestamp')
-                    if taken and taken > last_taken: last_taken = taken
-                time_msg = calculate_time_ago(last_taken)
-                send_telegram_message(f"🔥 YENİ HİKAYE! ({curr_story_count} adet) {time_msg}", chat_id)
-    else:
-        curr_story_count = old_data.get("latest_story_count", 0)
+                send_telegram_message(f"🔥 YENİ HİKAYE! ({curr_story_count} adet)", chat_id)
 
     if manual:
-        if not change: send_telegram_message("ℹ️ Listelerde değişiklik yok.", chat_id)
-        send_telegram_message(f"✅ Analiz Tamamlandı.\nTakipçi: {curr_fol}\nTakip Edilen: {curr_fng}", chat_id)
+        msg = f"✅ Analiz Tamamlandı.\n"
+        msg += f"Takipçi: {curr_fol} (Listelenen: {len(final_fol_list)})\n"
+        msg += f"Takip Edilen: {curr_fng} (Listelenen: {len(final_fng_list)})"
+        send_telegram_message(msg, chat_id)
 
+    # KAYDET
     save_data({
         "user_id": curr_id,
         "followers_count": curr_fol,
@@ -371,7 +377,7 @@ def check_full_status(manual=False, chat_id=None):
     })
 
 def bot_loop():
-    print("🚀 V10 BAŞLATILDI")
+    print("🚀 V11 İNATÇI MOD BAŞLATILDI")
     last_update_id = 0
     last_auto_check = time.time()
 
