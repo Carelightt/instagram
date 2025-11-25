@@ -110,17 +110,38 @@ def load_data():
 def save_data(data):
     with open("data.json", "w") as f: json.dump(data, f)
 
-# --- PARSE FONKSİYONLARI (DÜZELTİLDİ) ---
+# --- DÜZELTİLMİŞ PARSE FONKSİYONU ---
 def parse_basic_profile(data):
-    """Basic API'den gelen profil verisini okur"""
+    """
+    Veriyi bulmak için her deliğe bakar:
+    1. data['result'][0]['user']
+    2. data['data']['user']
+    3. data['user']
+    """
+    user_obj = None
+    
     try:
-        # Veri yapısı: result -> [0] -> user
-        res_list = data.get('result', [])
-        if not res_list: return None
+        # İHTİMAL 1: Senin attığın örnek (result listesi)
+        if "result" in data and isinstance(data["result"], list):
+            if len(data["result"]) > 0:
+                user_obj = data["result"][0].get("user")
         
-        user_obj = res_list[0].get('user')
-        if not user_obj: return None
+        # İHTİMAL 2: 'data' anahtarı içinde
+        elif "data" in data:
+            if "user" in data["data"]:
+                user_obj = data["data"]["user"]
+            else:
+                user_obj = data["data"] # Bazen direkt data'nın kendisidir
         
+        # İHTİMAL 3: Direkt ana dizinde
+        elif "user" in data:
+            user_obj = data["user"]
+
+        # Eğer hala user_obj yoksa, veri bozuktur
+        if not user_obj:
+            print(f"❌ JSON AYRIŞTIRILAMADI: {str(data)[:200]}") # Loga yaz
+            return None
+
         return {
             "id": user_obj.get('pk') or user_obj.get('id'),
             "followers": user_obj.get('follower_count', 0),
@@ -130,7 +151,9 @@ def parse_basic_profile(data):
             "url": user_obj.get('external_url', ""),
             "pic": user_obj.get('profile_pic_url', "")
         }
-    except: return None
+    except Exception as e:
+        print(f"Parse Hatası Detay: {e}")
+        return None
 
 def parse_premium_list(raw_data):
     """Premium API'den gelen listeyi okur"""
