@@ -11,7 +11,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "🚀 7-MOTORLU DEV BOT AKTİF!"
+    return "🚀 7-MOTORLU + KOMUTLU BOT AKTİF!"
 
 def run_flask():
     port = int(os.environ.get("PORT", 5000))
@@ -22,22 +22,19 @@ TARGET_USERNAME = os.environ.get("TARGET_USERNAME")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
-# 🔥 7 ADET API ANAHTARI (Sırayla dener)
+# 🔥 7 ADET API ANAHTARI
 API_KEYS = [
-    "524ea9ed97mshea5622f7563ab91p1c8a9bjsn4393885af79a", # Key 1
-    "5afb01f5damsh15c163415ce684bp176beajsne525580cab71", # Key 2
-    "fb54b1e3f9mshc8855c0c68842e0p11dc99jsndc587166854b", # Key 3
-    "053bbb3bcfmshbd34360e5e5e514p11d706jsn762810d7d191", # Key 4
-    "61cdb62a77mshfad122b72ee12d1p16a999jsn80009ce41384", # Key 5
-    "e483ba3acamsh9304acbeffe26efp1f9e8ajsnabfb0e96a849", # Key 6
-    "89b8e89b68mshde52c44e2beffadp17f4b4jsn35a7d495e79e"  # Key 7
+    "524ea9ed97mshea5622f7563ab91p1c8a9bjsn4393885af79a",
+    "5afb01f5damsh15c163415ce684bp176beajsne525580cab71",
+    "fb54b1e3f9mshc8855c0c68842e0p11dc99jsndc587166854b",
+    "053bbb3bcfmshbd34360e5e5e514p11d706jsn762810d7d191",
+    "61cdb62a77mshfad122b72ee12d1p16a999jsn80009ce41384",
+    "e483ba3acamsh9304acbeffe26efp1f9e8ajsnabfb0e96a849",
+    "89b8e89b68mshde52c44e2beffadp17f4b4jsn35a7d495e79e"
 ]
 RAPID_HOST = "instagram120.p.rapidapi.com"
 
-# ⚡ SÜRE AYARI: 25 Dakika (1500 Saniye)
-# 7000 istek / 4 = 1750 Tur.
-# 1750 / 30 Gün = Günde ~58 Tur.
-# 24 Saat / 58 = ~24.8 Dakika. (25 dk güvenli)
+# ⚡ OTOMATİK KONTROL SÜRESİ: 25 Dakika
 CHECK_INTERVAL = 1500 
 
 def send_telegram_message(message, chat_id=None):
@@ -50,9 +47,8 @@ def send_telegram_message(message, chat_id=None):
     except:
         pass
 
-# --- AKILLI ROTASYONLU API İSTEK FONKSİYONU ---
+# --- API İSTEK FONKSİYONU ---
 def call_rapid_api(endpoint, payload_dict):
-    # Anahtarları sırayla dene
     for i, key in enumerate(API_KEYS):
         try:
             conn = http.client.HTTPSConnection(RAPID_HOST)
@@ -65,24 +61,19 @@ def call_rapid_api(endpoint, payload_dict):
             conn.request("POST", endpoint, payload, headers)
             res = conn.getresponse()
             data = res.read()
-            
-            # Yanıtı çözümle
             json_data = json.loads(data.decode("utf-8"))
             
-            # Eğer hata mesajı varsa (mesela limit dolduysa)
+            # Limit kontrolü
             if isinstance(json_data, dict) and "message" in json_data and "exceeded" in str(json_data["message"]):
-                print(f"⚠️ Anahtar {i+1} Limiti Doldu. Diğerine geçiliyor...")
-                continue # Döngüye devam et, sıradaki anahtarı dene
+                print(f"⚠️ Key {i+1} Limit Doldu. Sıradakine geçiliyor...")
+                continue
             
-            # Başarılıysa veriyi döndür (ve döngüden çık)
             return json_data
-
         except Exception as e:
-            print(f"Bağlantı hatası (Key {i+1}): {e}")
-            continue # Hata varsa diğer anahtarı dene
+            print(f"Hata (Key {i+1}): {e}")
+            continue
 
-    # Hiçbir anahtar çalışmazsa
-    print("❌ KRİTİK: TÜM 7 ANAHTAR DA DENENDİ, HEPSİ BAŞARISIZ!")
+    print("❌ TÜM KEYLER BAŞARISIZ!")
     return None
 
 # --- VERİ YÖNETİMİ ---
@@ -99,100 +90,113 @@ def save_data(data):
     with open("data.json", "w") as f:
         json.dump(data, f)
 
-# --- KONTROL MEKANİZMASI ---
-def check_instagram_status(manual_check=False, chat_id=None):
-    print("🕵️‍♂️ Kontrol yapılıyor...")
+# --- FULL OTOMATİK KONTROL (4 KREDİ YER) ---
+def check_full_status(manual=False, chat_id=None):
+    print("🕵️‍♂️ Full kontrol yapılıyor...")
     
-    # 1. PROFİL
+    # 1. Profil
     user_data = call_rapid_api("/api/instagram/userInfo", {"username": TARGET_USERNAME})
+    if not user_data: return
+
+    result = user_data if 'username' in user_data else user_data.get('result') or user_data.get('data')
+    if not result: return
+
+    curr_fol = result.get('follower_count', 0)
+    curr_fng = result.get('following_count', 0)
+    curr_bio = result.get('biography', "")
+    curr_posts = result.get('media_count', 0)
     
-    if not user_data:
-        if manual_check: send_telegram_message("❌ Sistem Hatası: Veri alınamadı (API Sorunu).", chat_id)
-        return
-
-    try:
-        result = user_data if 'username' in user_data else user_data.get('result') or user_data.get('data')
+    old_data = load_data()
+    msgs = []
+    
+    # Değişim Analizi
+    if curr_fol != old_data.get("followers", 0) and old_data.get("followers", 0) != 0:
+        diff = curr_fol - old_data.get("followers", 0)
+        msgs.append(f"{'🟢' if diff>0 else '🔴'} Takipçi: {curr_fol} ({diff:+})")
         
-        # Bazen API boş dönerse
-        if not result:
-            if manual_check: send_telegram_message("❌ Kullanıcı verisi boş döndü.", chat_id)
-            return
+    if curr_fng != old_data.get("following", 0) and old_data.get("following", 0) != 0:
+        diff = curr_fng - old_data.get("following", 0)
+        msgs.append(f"{'👀' if diff>0 else '🔻'} Takip Edilen: {curr_fng} ({diff:+})")
 
-        curr_followers = result.get('follower_count', 0)
-        curr_following = result.get('following_count', 0)
-        curr_bio = result.get('biography', "")
-        curr_posts_count = result.get('media_count', 0)
+    if curr_bio != old_data.get("bio", "") and old_data.get("bio", "") != "":
+        msgs.append(f"📝 Biyo Değişti!\nYeni: {curr_bio}")
+
+    if curr_posts > old_data.get("posts_count", 0) and old_data.get("posts_count", 0) != 0:
+        msgs.append(f"📸 YENİ GÖNDERİ! (Toplam: {curr_posts})")
+    
+    # 2. Story
+    story_data = call_rapid_api("/api/instagram/stories", {"username": TARGET_USERNAME})
+    curr_story = 0
+    if story_data:
+        sl = story_data if isinstance(story_data, list) else story_data.get('result', []) or story_data.get('data', [])
+        curr_story = len(sl)
+        if curr_story > old_data.get("latest_story_count", 0):
+            msgs.append(f"🔥 YENİ HİKAYE! (Aktif: {curr_story})")
+
+    # 3. Highlights
+    hl_data = call_rapid_api("/api/instagram/highlights", {"username": TARGET_USERNAME})
+    curr_hl = 0
+    if hl_data:
+        hl = hl_data if isinstance(hl_data, list) else hl_data.get('result', []) or hl_data.get('data', [])
+        curr_hl = len(hl)
+        if curr_hl > old_data.get("highlight_count", 0) and old_data.get("highlight_count", 0) != 0:
+            msgs.append(f"⭐ YENİ HIGHLIGHT! (Toplam: {curr_hl})")
+
+    if msgs:
+        send_telegram_message(f"🚨 {TARGET_USERNAME} GÜNCELLEME:\n" + "\n".join(msgs), chat_id)
+    elif manual:
+        send_telegram_message(f"✅ Temiz. Değişiklik yok.\nTakipçi: {curr_fol}\nHikaye: {curr_story}", chat_id)
+
+    save_data({
+        "followers": curr_fol, "following": curr_fng, "bio": curr_bio,
+        "posts_count": curr_posts, "highlight_count": curr_hl, "latest_story_count": curr_story
+    })
+
+# --- KOMUT İŞLEYİCİLERİ ---
+def handle_takipci(chat_id):
+    send_telegram_message("🔍 Takipçiler sayılıyor... (1 Kredi)", chat_id)
+    data = call_rapid_api("/api/instagram/userInfo", {"username": TARGET_USERNAME})
+    if data:
+        res = data if 'username' in data else data.get('result') or data.get('data')
+        fol = res.get('follower_count', 0)
+        fng = res.get('following_count', 0)
+        send_telegram_message(f"📊 RAPOR:\n👤 Takipçi: {fol}\n👉 Takip Edilen: {fng}", chat_id)
         
-        old_data = load_data()
-        messages = []
+        # Veriyi güncelle ki otomatik kontrol şaşırmasın
+        d = load_data()
+        d["followers"] = fol
+        d["following"] = fng
+        save_data(d)
+    else:
+        send_telegram_message("❌ Veri alınamadı.", chat_id)
+
+def handle_story(chat_id):
+    send_telegram_message("🔍 Hikayelere bakılıyor... (1 Kredi)", chat_id)
+    data = call_rapid_api("/api/instagram/stories", {"username": TARGET_USERNAME})
+    if data:
+        sl = data if isinstance(data, list) else data.get('result', []) or data.get('data', [])
+        count = len(sl)
+        if count > 0:
+            send_telegram_message(f"🔥 EVET! {count} adet aktif hikaye var.", chat_id)
+        else:
+            send_telegram_message("ℹ️ Şu an hiç hikaye yok.", chat_id)
         
-        # Analizler
-        diff_fol = curr_followers - old_data.get("followers", 0)
-        if diff_fol != 0 and old_data.get("followers", 0) != 0:
-            emoji = "🟢" if diff_fol > 0 else "🔴"
-            messages.append(f"{emoji} Takipçi: {curr_followers} ({diff_fol:+})")
-            
-        diff_fng = curr_following - old_data.get("following", 0)
-        if diff_fng != 0 and old_data.get("following", 0) != 0:
-            emoji = "👀" if diff_fng > 0 else "🔻"
-            messages.append(f"{emoji} Takip Edilen: {curr_following} ({diff_fng:+})")
+        d = load_data()
+        d["latest_story_count"] = count
+        save_data(d)
+    else:
+        send_telegram_message("❌ Veri alınamadı.", chat_id)
 
-        if curr_bio != old_data.get("bio", "") and old_data.get("bio", "") != "":
-            messages.append(f"📝 Biyo Değişti!\nYeni: {curr_bio}")
-
-        if curr_posts_count > old_data.get("posts_count", 0) and old_data.get("posts_count", 0) != 0:
-            messages.append(f"📸 YENİ GÖNDERİ! (Toplam: {curr_posts_count})")
-        
-        # 2. HİKAYE
-        story_data = call_rapid_api("/api/instagram/stories", {"username": TARGET_USERNAME})
-        curr_story_count = 0
-        if story_data:
-            stories_list = story_data if isinstance(story_data, list) else story_data.get('result', []) or story_data.get('data', [])
-            curr_story_count = len(stories_list)
-            if curr_story_count > old_data.get("latest_story_count", 0):
-                messages.append(f"🔥 YENİ HİKAYE! (Aktif: {curr_story_count})")
-        
-        # 3. ÖNE ÇIKANLAR
-        hl_data = call_rapid_api("/api/instagram/highlights", {"username": TARGET_USERNAME})
-        curr_hl_count = 0
-        if hl_data:
-            hl_list = hl_data if isinstance(hl_data, list) else hl_data.get('result', []) or hl_data.get('data', [])
-            curr_hl_count = len(hl_list)
-            if curr_hl_count > old_data.get("highlight_count", 0) and old_data.get("highlight_count", 0) != 0:
-                messages.append(f"⭐ YENİ HIGHLIGHT! (Toplam: {curr_hl_count})")
-
-        # Gönderim
-        if messages:
-            full_msg = f"🚨 {TARGET_USERNAME} RAPORU:\n" + "\n".join(messages)
-            send_telegram_message(full_msg, chat_id)
-        elif manual_check:
-            # 7 Keyimiz olduğu için artık korkmadan detaylı rapor verebiliriz
-            send_telegram_message(f"✅ Durum Stabil.\nTakipçi: {curr_followers}\nTakip Edilen: {curr_following}\nHikaye: {curr_story_count}", chat_id)
-
-        # Kaydet
-        new_data = {
-            "followers": curr_followers,
-            "following": curr_following,
-            "bio": curr_bio,
-            "posts_count": curr_posts_count,
-            "highlight_count": curr_hl_count,
-            "latest_story_count": curr_story_count
-        }
-        save_data(new_data)
-        
-    except Exception as e:
-        print(f"Analiz Hatası: {e}")
-        if manual_check: send_telegram_message(f"⚠️ Hata: {e}", chat_id)
-
+# --- BOT LOOP ---
 def bot_loop():
-    print("🚀 7 Motorlu Mod Başlatıldı...")
+    print("🚀 Komutlu Mod Başlatıldı...")
     last_update_id = 0
     last_auto_check = time.time()
 
     while True:
         current_time = time.time()
         
-        # Telegram Komutları (/kontrol vs.)
+        # Telegram Dinleme
         try:
             tg_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates?offset={last_update_id + 1}&timeout=5"
             resp = requests.get(tg_url).json()
@@ -204,14 +208,21 @@ def bot_loop():
                     chat_id = message.get("chat", {}).get("id")
                     
                     if "/kontrol" in text:
-                        send_telegram_message("🏎️ Manuel kontrol (7 Key devrede)...", chat_id)
-                        check_instagram_status(manual_check=True, chat_id=chat_id)
+                        send_telegram_message("🏎️ Full kontrol yapılıyor... (4 Kredi)", chat_id)
+                        check_full_status(manual=True, chat_id=chat_id)
+                    
+                    elif "/takipci" in text or "/takip" in text:
+                        handle_takipci(chat_id)
+                        
+                    elif "/story" in text:
+                        handle_story(chat_id)
+
         except:
             pass
         
         # Otomatik Kontrol (25 Dakikada bir)
         if current_time - last_auto_check >= CHECK_INTERVAL:
-            check_instagram_status(manual_check=False)
+            check_full_status(manual=False)
             last_auto_check = current_time
         
         time.sleep(5)
