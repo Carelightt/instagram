@@ -6,12 +6,11 @@ import requests
 from flask import Flask
 from datetime import datetime
 
-# --- FLASK ---
 app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "🚀 AKILLI HAFIZA BOT AKTİF!"
+    return "🚀 V7.2 HAFIZA KONTROLLÜ BOT!"
 
 def run_flask():
     port = int(os.environ.get("PORT", 5000))
@@ -64,7 +63,6 @@ def deep_search(data, key):
             if res is not None: return res
     return None
 
-# --- API MODÜLLERİ ---
 def call_basic_api(endpoint, payload_dict):
     url = f"https://{HOST_BASIC}{endpoint}"
     for i, key in enumerate(ALL_KEYS):
@@ -92,7 +90,6 @@ def call_premium_api(endpoint_type, user_id):
         except: continue
     return None
 
-# --- PARSE ---
 def parse_profile(data):
     try:
         fol = deep_search(data, "follower_count")
@@ -135,7 +132,6 @@ def parse_premium_list(raw_data):
     except: pass
     return list(set(usernames))
 
-# --- DATA ---
 def load_data():
     if not os.path.exists("data.json"): return {}
     try:
@@ -145,40 +141,26 @@ def load_data():
 def save_data(data):
     with open("data.json", "w") as f: json.dump(data, f)
 
-# --- KOMUTLAR ---
 def handle_takipci(chat_id):
     send_telegram_message(f"🔍 {TARGET_USERNAME} sayılar kontrol ediliyor...", chat_id)
-    
-    # API'den veriyi çek
     profile = get_robust_profile()
     
-    # Veritabanını yükle (Eski sağlam veriler)
     d = load_data()
     saved_fol = d.get("followers_count", 0)
     saved_fng = d.get("following_count", 0)
     
     if profile:
-        api_fol = profile['followers']
-        api_fng = profile['following']
-        name = profile['full_name']
+        # Hafıza ile API'yi kıyasla, en büyüğünü al (Hata payını düşürür)
+        fol = max(profile['followers'], saved_fol)
+        fng = max(profile['following'], saved_fng)
         
-        # --- AKILLI MANTIK BURADA ---
-        # Eğer API'den gelen sayı (3), Kayıtlı olandan (4) küçükse
-        # Demek ki API geriden geliyor (Cache). Biz DOĞRU olana (Kayıtlıya) güvenelim.
-        # (Takipçi genelde artar, düşerse de önce Kontrol yakalar zaten)
-        
-        final_fol = max(api_fol, saved_fol)
-        final_fng = max(api_fng, saved_fng)
-        
-        msg = f"📊 RAPOR ({name}):\n👤 Takipçi: {final_fol}\n👉 Takip Edilen: {final_fng}\n📅 {get_time_str()}"
+        msg = f"📊 RAPOR ({profile['full_name']}):\n👤 Takipçi: {fol}\n👉 Takip Edilen: {fng}\n📅 {get_time_str()}"
         send_telegram_message(msg, chat_id)
         
-        # Veritabanını SADECE daha yüksekse güncelle
-        d["followers_count"] = final_fol
-        d["following_count"] = final_fng
+        d["followers_count"] = fol
+        d["following_count"] = fng
         if "id" in profile: d["user_id"] = profile["id"]
         save_data(d)
-        
     else:
         send_telegram_message("❌ Veri alınamadı.", chat_id)
 
@@ -196,7 +178,22 @@ def handle_story(chat_id):
     else:
         send_telegram_message("❌ Veri alınamadı.", chat_id)
 
-# --- OTOMATİK ---
+# --- YENİ KOMUT: LİSTEM ---
+def handle_listem(chat_id):
+    d = load_data()
+    fng_list = d.get("following_list", [])
+    fol_list = d.get("followers_list", [])
+    
+    if not fng_list and not fol_list:
+        send_telegram_message("📂 Hafıza boş! (Daha hiç detaylı liste çekilmedi)", chat_id)
+        return
+
+    msg = f"📂 BOT HAFIZASI ({len(fng_list)} Takip Edilen):\n"
+    msg += ", ".join(fng_list[:50]) # İlk 50 kişiyi göster (Spam olmasın)
+    if len(fng_list) > 50: msg += f"\n... ve {len(fng_list)-50} kişi daha."
+    
+    send_telegram_message(msg, chat_id)
+
 def check_full_status(manual=False, chat_id=None):
     if manual: send_telegram_message("🕵️‍♂️ Manuel FBI Taraması...", chat_id)
     
@@ -217,7 +214,6 @@ def check_full_status(manual=False, chat_id=None):
         old_data["user_id"] = curr_id
         save_data(old_data)
 
-    # Değişim Kontrolü (Basic API'ye göre)
     change = False
     if curr_fol != old_data.get("followers_count", 0): change = True
     if curr_fng != old_data.get("following_count", 0): change = True
@@ -226,9 +222,9 @@ def check_full_status(manual=False, chat_id=None):
     final_fol_list = old_data.get("followers_list", [])
     final_fng_list = old_data.get("following_list", [])
 
-    # Eğer değişim varsa -> PREMIUM API (GERÇEK SAYI BURADAN GELİR)
+    # LİSTE ÇEK (Değişim varsa veya Manuelse)
     if change or manual:
-        if manual: send_telegram_message("🔍 Listeler çekiliyor (Kesin Sonuç)...", chat_id)
+        if manual: send_telegram_message("🔍 Listeler çekiliyor...", chat_id)
         
         raw_fol = call_premium_api("followers", curr_id)
         new_fol = parse_premium_list(raw_fol)
@@ -236,7 +232,7 @@ def check_full_status(manual=False, chat_id=None):
         raw_fng = call_premium_api("following", curr_id)
         new_fng = parse_premium_list(raw_fng)
         
-        # Takipçi Analizi
+        # Analiz
         if new_fol:
             diff_new = set(new_fol) - set(final_fol_list)
             for user in diff_new:
@@ -248,10 +244,8 @@ def check_full_status(manual=False, chat_id=None):
                     send_telegram_message(f"{user} ({TARGET_USERNAME})'yı takipten çıktı\n\n{get_time_str()}", chat_id)
             
             final_fol_list = new_fol
-            # BURASI ÖNEMLİ: Gerçek sayıyı listeden alıp Basic API'yi eziyoruz
-            curr_fol = len(new_fol) 
+            curr_fol = len(new_fol) # Sayıyı listeden güncelle
 
-        # Takip Edilen Analizi
         if new_fng:
             diff_new = set(new_fng) - set(final_fng_list)
             for user in diff_new:
@@ -263,16 +257,32 @@ def check_full_status(manual=False, chat_id=None):
                     send_telegram_message(f"({TARGET_USERNAME}) {user}'i takipten çıktı\n\n{get_time_str()}", chat_id)
 
             final_fng_list = new_fng
-            # BURASI ÖNEMLİ: Gerçek sayıyı listeden alıp Basic API'yi eziyoruz
-            curr_fng = len(new_fng)
+            curr_fng = len(new_fng) # Sayıyı listeden güncelle
 
+    # Diğer Kontroller
     if old_data.get("bio") and curr_bio != old_data["bio"]:
         send_telegram_message(f"📝 BİYOGRAFİ DEĞİŞTİ!\nEski: {old_data['bio']}\nYeni: {curr_bio}")
     
     if curr_posts > old_data.get("posts_count", 0) and old_data.get("posts_count", 0) != 0:
         send_telegram_message("📸 YENİ GÖNDERİ PAYLAŞILDI!", chat_id)
 
+    # Story
+    story_data = call_basic_api("/api/instagram/stories", {"username": TARGET_USERNAME})
+    curr_story_count = 0
+    if story_data:
+        sl = deep_search(story_data, "result")
+        if isinstance(sl, list):
+            curr_story_count = len(sl)
+            if curr_story_count > old_data.get("latest_story_count", 0):
+                send_telegram_message(f"🔥 YENİ HİKAYE! ({curr_story_count} adet)", chat_id)
+    else:
+        curr_story_count = old_data.get("latest_story_count", 0)
+
     if manual:
+        # Listeler kontrol edildiği için artık "Listelerde değişiklik bulunamadı" diyebiliriz
+        if not change:
+            send_telegram_message("ℹ️ Listelerde değişiklik bulunamadı.", chat_id)
+        
         send_telegram_message(f"✅ Analiz Tamamlandı.\nTakipçi: {curr_fol}\nTakip Edilen: {curr_fng}", chat_id)
 
     save_data({
@@ -280,7 +290,7 @@ def check_full_status(manual=False, chat_id=None):
         "followers_count": curr_fol,
         "following_count": curr_fng,
         "posts_count": curr_posts,
-        "latest_story_count": old_data.get("latest_story_count", 0),
+        "latest_story_count": curr_story_count,
         "followers_list": final_fol_list,
         "following_list": final_fng_list,
         "bio": curr_bio,
@@ -288,14 +298,12 @@ def check_full_status(manual=False, chat_id=None):
         "profile_pic": ""
     })
 
-# --- LOOP KISMINI BUNUNLA DEĞİŞTİR ---
 def bot_loop():
-    print("🚀 TAM OTOMATİK MOD BAŞLATILDI")
+    print("🚀 V7.2 BAŞLATILDI")
     last_update_id = 0
     last_auto_check = time.time()
 
     while True:
-        # 1. Telegram Dinleme (Anlık)
         try:
             tg_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates?offset={last_update_id + 1}&timeout=5"
             resp = requests.get(tg_url, timeout=10).json()
@@ -309,23 +317,8 @@ def bot_loop():
                     if "/kontrol" in text: check_full_status(manual=True, chat_id=chat_id)
                     elif "/takipci" in text: handle_takipci(chat_id)
                     elif "/story" in text: handle_story(chat_id)
+                    elif "/listem" in text: handle_listem(chat_id) # YENİ KOMUT
         except: time.sleep(1)
-        
-        # 2. Otomatik Kontrol Zamanı Geldi mi?
-        time_passed = time.time() - last_auto_check
-        
-        if time_passed >= CHECK_INTERVAL:
-            print("⏰ ZAMAN GELDİ! Otomatik kontrol başlıyor...")
-            check_full_status(manual=False)
-            last_auto_check = time.time()
-        
-        # (İsteğe Bağlı) Loglara geri sayım bas (Her 1 dakikada bir)
-        # Render loglarında "Bot çalışıyor mu?" diye görmen için
-        if int(time_passed) % 60 == 0 and int(time_passed) > 0:
-            kalan = int(CHECK_INTERVAL - time_passed)
-            print(f"⏳ Sonraki kontrole {kalan // 60} dakika kaldı...")
-
-        time.sleep(1)
         
         if time.time() - last_auto_check >= CHECK_INTERVAL:
             check_full_status(manual=False)
