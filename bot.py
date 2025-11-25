@@ -11,7 +11,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "🚀 CHROME-MASKELİ BOT AKTİF!"
+    return "🚀 FİNAL V6 BOT (PREMIUM FIX) AKTİF!"
 
 def run_flask():
     port = int(os.environ.get("PORT", 5000))
@@ -22,7 +22,7 @@ TARGET_USERNAME = os.environ.get("TARGET_USERNAME")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
-# 9 ADET ANAHTAR (Senin listendekiler)
+# TÜM ANAHTARLAR
 ALL_KEYS = [
     "524ea9ed97mshea5622f7563ab91p1c8a9bjsn4393885af79a",
     "5afb01f5damsh15c163415ce684bp176beajsne525580cab71",
@@ -37,11 +37,7 @@ ALL_KEYS = [
 
 HOST_BASIC = "instagram120.p.rapidapi.com"             
 HOST_PREMIUM = "instagram-best-experience.p.rapidapi.com" 
-
-# OTOMATİK KONTROL SIKLIĞI: 15 Dakika
 CHECK_INTERVAL = 900
-
-# 🔥 SİHİRLİ KİMLİK KARTI (User-Agent)
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
 
 def get_time_str():
@@ -57,97 +53,96 @@ def send_telegram_message(message, chat_id=None):
     except:
         pass
 
-# --- 1. MODÜL: BASIC API (User-Agent Eklendi) ---
-def call_basic_api(endpoint, payload_dict):
-    url = f"https://{HOST_BASIC}{endpoint}"
-    
-    for i, key in enumerate(ALL_KEYS):
-        try:
-            headers = {
-                "x-rapidapi-key": key,
-                "x-rapidapi-host": HOST_BASIC,
-                "Content-Type": "application/json",
-                "User-Agent": USER_AGENT  # <-- İŞTE BU EKLENDİ
-            }
-            response = requests.post(url, json=payload_dict, headers=headers, timeout=15)
-            
-            if response.status_code == 200: return response.json()
-            if response.status_code == 429: continue 
-            
-        except: continue
-            
+def deep_search(data, key):
+    if isinstance(data, dict):
+        if key in data: return data[key]
+        for k, v in data.items():
+            res = deep_search(v, key)
+            if res is not None: return res
+    elif isinstance(data, list):
+        for item in data:
+            res = deep_search(item, key)
+            if res is not None: return res
     return None
 
-# --- 2. MODÜL: PREMIUM API (User-Agent Eklendi) ---
+# --- 1. BASIC API ---
+def call_basic_api(endpoint, payload_dict):
+    url = f"https://{HOST_BASIC}{endpoint}"
+    for i, key in enumerate(ALL_KEYS):
+        try:
+            headers = {"x-rapidapi-key": key, "x-rapidapi-host": HOST_BASIC, "Content-Type": "application/json", "User-Agent": USER_AGENT}
+            response = requests.post(url, json=payload_dict, headers=headers, timeout=15)
+            if response.status_code == 200:
+                data = response.json()
+                if "stories" in endpoint: return data
+                if deep_search(data, "follower_count") is not None: return data
+            if response.status_code == 429: continue 
+        except: continue
+    return None
+
+# --- 2. PREMIUM API ---
 def call_premium_api(endpoint_type, user_id):
     url = f"https://{HOST_PREMIUM}/{endpoint_type}"
     for i, key in enumerate(ALL_KEYS):
         try:
             querystring = {"user_id": str(user_id)}
-            headers = {
-                "x-rapidapi-key": key,
-                "x-rapidapi-host": HOST_PREMIUM,
-                "User-Agent": USER_AGENT # <-- İŞTE BU EKLENDİ
-            }
+            # Best Experience bazen next_max_id ister ama ilk sayfa için gerekmez
+            headers = {"x-rapidapi-key": key, "x-rapidapi-host": HOST_PREMIUM, "User-Agent": USER_AGENT}
             response = requests.get(url, headers=headers, params=querystring, timeout=15)
-            
             if response.status_code == 200: return response.json()
             if response.status_code == 429: continue 
             if response.status_code == 403: continue
         except: continue
     return None
 
-# --- PARSE FONKSİYONLARI (SAĞLAM) ---
-def parse_basic_profile(data):
+# --- PARSE: BASIC ---
+def parse_profile(data):
     try:
-        # Her ihtimale karşı veri yolunu bul
-        user_obj = None
-        if "result" in data and isinstance(data["result"], list) and len(data["result"]) > 0:
-            user_obj = data["result"][0].get("user")
-        elif "data" in data:
-            user_obj = data["data"].get("user") or data["data"]
-        elif "user" in data:
-            user_obj = data["user"]
-
-        if not user_obj: return None
-
-        return {
-            "id": user_obj.get('pk') or user_obj.get('id'),
-            "followers": user_obj.get('follower_count', 0),
-            "following": user_obj.get('following_count', 0),
-            "posts": user_obj.get('media_count', 0),
-            "bio": user_obj.get('biography', ""),
-            "url": user_obj.get('external_url', ""),
-            "pic": user_obj.get('profile_pic_url', "")
-        }
+        fol = deep_search(data, "follower_count")
+        fng = deep_search(data, "following_count")
+        uid = deep_search(data, "pk") or deep_search(data, "id")
+        name = deep_search(data, "full_name") or TARGET_USERNAME
+        bio = deep_search(data, "biography") or ""
+        url = deep_search(data, "external_url") or ""
+        posts = deep_search(data, "media_count") or 0
+        
+        if fol is None: return None
+        
+        return {"id": uid, "followers": fol, "following": fng, "posts": posts, "bio": bio, "url": url, "full_name": name}
     except: return None
 
+# --- PARSE: PREMIUM (DÜZELTİLDİ) ---
 def parse_premium_list(raw_data):
     usernames = []
     try:
-        items = raw_data.get('data', {}).get('items', []) or raw_data.get('users', []) or raw_data.get('items', [])
-        for item in items:
-            user_obj = item.get('user') if 'user' in item else item
-            uname = user_obj.get('username')
-            if uname: usernames.append(uname)
+        # SENİN ATTIĞIN JSON YAPISI: { "users": [ { "username": "..." }, ... ] }
+        
+        # İhtimal 1: 'users' listesi (Senin örneğin)
+        if "users" in raw_data and isinstance(raw_data["users"], list):
+            for user in raw_data["users"]:
+                uname = user.get("username")
+                if uname: usernames.append(uname)
+                
+        # İhtimal 2: 'data' -> 'users'
+        elif "data" in raw_data and "users" in raw_data["data"]:
+             for user in raw_data["data"]["users"]:
+                uname = user.get("username")
+                if uname: usernames.append(uname)
+                
+        # İhtimal 3: Eski usul 'items'
+        elif "data" in raw_data and "items" in raw_data["data"]:
+             for item in raw_data["data"]["items"]:
+                 # item ya user objesidir ya da user key'i vardır
+                 user_obj = item.get("user") if "user" in item else item
+                 uname = user_obj.get("username")
+                 if uname: usernames.append(uname)
+                 
     except: pass
-    return usernames
+    return list(set(usernames)) # Tekrar edenleri temizle
 
-# --- VERİ YÖNETİMİ ---
+# --- DATA ---
 def load_data():
-    if not os.path.exists("data.json"): 
-        return {
-            "user_id": None,
-            "followers_count": 0, 
-            "following_count": 0,
-            "followers_list": [],
-            "following_list": [],
-            "posts_count": 0,
-            "latest_story_count": 0,
-            "bio": "",
-            "profile_pic": "",
-            "external_url": ""
-        }
+    if not os.path.exists("data.json"): return {}
     try:
         with open("data.json", "r") as f: return json.load(f)
     except: return {}
@@ -155,35 +150,36 @@ def load_data():
 def save_data(data):
     with open("data.json", "w") as f: json.dump(data, f)
 
-# --- MANUEL KOMUTLAR ---
+# --- KOMUTLAR ---
 def handle_takipci(chat_id):
-    send_telegram_message(f"🔍 {TARGET_USERNAME} taranıyor...", chat_id)
-    
+    send_telegram_message(f"🔍 {TARGET_USERNAME} sayıları kontrol ediliyor...", chat_id)
     raw_data = call_basic_api("/api/instagram/profile", {"username": TARGET_USERNAME})
-    profile = parse_basic_profile(raw_data)
-    
-    if profile:
-        msg = f"📊 RAPOR ({profile.get('full_name', TARGET_USERNAME)}):\n👤 Takipçi: {profile['followers']}\n👉 Takip Edilen: {profile['following']}\n📅 {get_time_str()}"
-        send_telegram_message(msg, chat_id)
-        
-        # Veriyi güncelle
-        d = load_data()
-        d["followers_count"] = profile['followers']
-        d["following_count"] = profile['following']
-        d["user_id"] = profile["id"]
-        save_data(d)
+    if raw_data:
+        profile = parse_profile(raw_data)
+        if profile:
+            msg = f"📊 RAPOR ({profile['full_name']}):\n👤 Takipçi: {profile['followers']}\n👉 Takip Edilen: {profile['following']}\n📅 {get_time_str()}"
+            send_telegram_message(msg, chat_id)
+            d = load_data()
+            d["followers_count"] = profile['followers']
+            d["following_count"] = profile['following']
+            d["user_id"] = profile["id"]
+            save_data(d)
+        else:
+            send_telegram_message("❌ Veri formatı hatalı.", chat_id)
     else:
-        send_telegram_message("❌ Veri alınamadı.", chat_id)
+        send_telegram_message("❌ Basic API Veri Vermedi.", chat_id)
 
 def handle_story(chat_id):
     send_telegram_message("🔍 Hikaye kontrol...", chat_id)
     data = call_basic_api("/api/instagram/stories", {"username": TARGET_USERNAME})
-    
     if data:
-        sl = data.get('result', [])
-        count = len(sl)
-        if count > 0: send_telegram_message(f"🔥 {count} Adet Aktif Hikaye Var!", chat_id)
-        else: send_telegram_message("ℹ️ Aktif hikaye yok.", chat_id)
+        sl = deep_search(data, "result")
+        if isinstance(sl, list):
+            count = len(sl)
+            if count > 0: send_telegram_message(f"🔥 {count} Adet Aktif Hikaye Var!", chat_id)
+            else: send_telegram_message("ℹ️ Aktif hikaye yok.", chat_id)
+        else:
+            send_telegram_message("ℹ️ Aktif hikaye yok (Veri boş).", chat_id)
     else:
         send_telegram_message("❌ Veri alınamadı.", chat_id)
 
@@ -191,106 +187,95 @@ def handle_story(chat_id):
 def check_full_status(manual=False, chat_id=None):
     if manual: send_telegram_message("🕵️‍♂️ Manuel FBI Taraması...", chat_id)
     
-    # 1. BASIC API (Profil)
-    raw_profile = call_basic_api("/api/instagram/profile", {"username": TARGET_USERNAME})
-    profile = parse_basic_profile(raw_profile)
-    
+    profile = call_basic_api("/api/instagram/profile", {"username": TARGET_USERNAME})
     if not profile:
-        if manual: send_telegram_message("❌ API Veri vermedi.", chat_id)
+        if manual: send_telegram_message("❌ Basic API Hatası.", chat_id)
         return
 
-    # Güncel Değerler
-    curr_id = profile["id"]
-    curr_fol = profile["followers"]
-    curr_fng = profile["following"]
-    curr_posts = profile["posts"]
-    curr_bio = profile["bio"]
-    curr_link = profile["url"]
+    p = parse_profile(profile)
+    if not p:
+        if manual: send_telegram_message("❌ Profil verisi işlenemedi.", chat_id)
+        return
+
+    curr_id = p["id"]
+    curr_fol = p["followers"]
+    curr_fng = p["following"]
+    curr_posts = p["posts"]
+    curr_bio = p["bio"]
+    curr_link = p["url"]
 
     old_data = load_data()
-    
-    # İlk çalıştırma veya ID eksikse kaydet
-    if not old_data.get("user_id"):
+    if not old_data.get("user_id") and curr_id:
         old_data["user_id"] = curr_id
         save_data(old_data)
 
-    # --- DEĞİŞİM KONTROLÜ ---
     change = False
     if curr_fol != old_data.get("followers_count", 0): change = True
     if curr_fng != old_data.get("following_count", 0): change = True
-    if not old_data.get("followers_list"): change = True # Liste boşsa çek
+    if not old_data.get("followers_list"): change = True
 
     final_fol_list = old_data.get("followers_list", [])
     final_fng_list = old_data.get("following_list", [])
 
-    # 2. DEĞİŞİM VARSA -> PREMIUM LİSTE ÇEK
+    # LISTE ÇEKME (PREMIUM)
     if change or manual:
-        if manual: send_telegram_message("🔍 Listeler taranıyor...", chat_id)
+        if manual: send_telegram_message("🔍 Liste çekiliyor (Premium)...", chat_id)
         
-        # Takipçiler
         raw_fol = call_premium_api("followers", curr_id)
         new_fol = parse_premium_list(raw_fol)
         
-        # Takip Edilenler
         raw_fng = call_premium_api("following", curr_id)
         new_fng = parse_premium_list(raw_fng)
         
-        # Analiz: Gelen Takipçi
+        # Takipçi Analizi
         if new_fol:
             diff_new = set(new_fol) - set(final_fol_list)
             for user in diff_new:
                 send_telegram_message(f"{user} ({TARGET_USERNAME})'yı takip etmeye başladı\n\n{get_time_str()}", chat_id)
+            
+            if final_fol_list:
+                diff_lost = set(final_fol_list) - set(new_fol)
+                for user in diff_lost:
+                    send_telegram_message(f"{user} ({TARGET_USERNAME})'yı takipten çıktı\n\n{get_time_str()}", chat_id)
+            
             final_fol_list = new_fol
 
-        # Analiz: Takip Edilen
+        # Takip Edilen Analizi
         if new_fng:
             diff_new = set(new_fng) - set(final_fng_list)
             for user in diff_new:
                 send_telegram_message(f"({TARGET_USERNAME}) {user}'i takip etmeye başladı\n\n{get_time_str()}", chat_id)
             
-            diff_lost = set(final_fng_list) - set(new_fng)
-            for user in diff_lost:
-                send_telegram_message(f"({TARGET_USERNAME}) {user}'i takipten çıktı\n\n{get_time_str()}", chat_id)
+            if final_fng_list:
+                diff_lost = set(final_fng_list) - set(new_fng)
+                for user in diff_lost:
+                    send_telegram_message(f"({TARGET_USERNAME}) {user}'i takipten çıktı\n\n{get_time_str()}", chat_id)
 
             final_fng_list = new_fng
 
-    # 3. DİĞER KONTROLLER
     if old_data.get("bio") and curr_bio != old_data["bio"]:
         send_telegram_message(f"📝 BİYOGRAFİ DEĞİŞTİ!\nEski: {old_data['bio']}\nYeni: {curr_bio}")
     
     if curr_posts > old_data.get("posts_count", 0) and old_data.get("posts_count", 0) != 0:
         send_telegram_message("📸 YENİ GÖNDERİ PAYLAŞILDI!", chat_id)
 
-    # Story
-    story_data = call_basic_api("/api/instagram/stories", {"username": TARGET_USERNAME})
-    if story_data:
-        sl = story_data.get('result', [])
-        if len(sl) > old_data.get("latest_story_count", 0):
-            send_telegram_message(f"🔥 YENİ HİKAYE! ({len(sl)} adet)", chat_id)
-        curr_story_count = len(sl)
-    else:
-        curr_story_count = old_data.get("latest_story_count", 0)
-
     if manual:
-        send_telegram_message(f"✅ Analiz Tamamlandı.\nTakipçi: {curr_fol}\nTakip Edilen: {curr_fng}", chat_id)
+        send_telegram_message(f"✅ Analiz Bitti.\nTakipçi: {curr_fol}\nTakip Edilen: {curr_fng}", chat_id)
 
-    # KAYDET
     save_data({
         "user_id": curr_id,
         "followers_count": curr_fol,
         "following_count": curr_fng,
         "posts_count": curr_posts,
-        "latest_story_count": curr_story_count,
         "followers_list": final_fol_list,
         "following_list": final_fng_list,
         "bio": curr_bio,
         "external_url": curr_link,
-        "profile_pic": ""
+        "latest_story_count": old_data.get("latest_story_count", 0)
     })
 
-# --- LOOP ---
 def bot_loop():
-    print("🚀 USER-AGENTLI BOT BAŞLATILDI")
+    print("🚀 FİNAL V6 BAŞLATILDI")
     last_update_id = 0
     last_auto_check = time.time()
 
@@ -305,19 +290,14 @@ def bot_loop():
                     text = message.get("text", "").lower()
                     chat_id = message.get("chat", {}).get("id")
                     
-                    if "/kontrol" in text:
-                        check_full_status(manual=True, chat_id=chat_id)
-                    elif "/takipci" in text:
-                        handle_takipci(chat_id)
-                    elif "/story" in text:
-                        handle_story(chat_id)
-        except:
-            time.sleep(1)
+                    if "/kontrol" in text: check_full_status(manual=True, chat_id=chat_id)
+                    elif "/takipci" in text: handle_takipci(chat_id)
+                    elif "/story" in text: handle_story(chat_id)
+        except: time.sleep(1)
         
         if time.time() - last_auto_check >= CHECK_INTERVAL:
             check_full_status(manual=False)
             last_auto_check = time.time()
-        
         time.sleep(1)
 
 if __name__ == "__main__":
