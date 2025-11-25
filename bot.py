@@ -3,24 +3,25 @@ import json
 import os
 import threading
 import requests
-import http.client
 from flask import Flask
 
+# --- FLASK ---
 app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "🚀 KONUŞKAN BOT AKTİF!"
+    return "🚀 REQUESTS NATIVE MOD AKTİF!"
 
 def run_flask():
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
 
-# AYARLAR
+# --- AYARLAR ---
 TARGET_USERNAME = os.environ.get("TARGET_USERNAME")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
+# 7 ADET ANAHTARIN
 API_KEYS = [
     "524ea9ed97mshea5622f7563ab91p1c8a9bjsn4393885af79a",
     "5afb01f5damsh15c163415ce684bp176beajsne525580cab71",
@@ -30,6 +31,7 @@ API_KEYS = [
     "e483ba3acamsh9304acbeffe26efp1f9e8ajsnabfb0e96a849",
     "89b8e89b68mshde52c44e2beffadp17f4b4jsn35a7d495e79e"
 ]
+
 RAPID_HOST = "instagram120.p.rapidapi.com"
 CHECK_INTERVAL = 1500 
 
@@ -39,64 +41,49 @@ def send_telegram_message(message, chat_id=None):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     data = {"chat_id": target_chat, "text": message}
     try:
-        # Timeout'u kısa tutalım ki mesaj atarken bot donmasın
-        requests.post(url, data=data, timeout=3)
+        requests.post(url, data=data, timeout=10)
     except:
         pass
 
-def call_rapid_api(endpoint, payload_dict, chat_id=None):
-    payload = json.dumps(payload_dict)
+# --- SENİN ATTIĞIN ÖRNEK KOD YAPISI ---
+def call_rapid_api(endpoint, payload_dict):
+    url = f"https://{RAPID_HOST}{endpoint}"
     
+    # 7 Anahtarı Sırayla Dene
     for i, key in enumerate(API_KEYS):
         try:
-            # Kullanıcıya bilgi ver (Bunu normalde yapmayız ama debug için şart)
-            if chat_id: 
-                # Sadece mesajı düzenlemek yerine yeni mesaj atalım ki akışı gör
-                # Çok spam olmasın diye sadece hata alırsak yazdıracağız aşağıda
-                pass
-
-            conn = http.client.HTTPSConnection(RAPID_HOST, timeout=5) # 5 Saniye Timeout!
-            
+            # Senin attığın headers yapısının AYNISI
             headers = {
-                'x-rapidapi-key': key,
-                'x-rapidapi-host': RAPID_HOST,
-                'Content-Type': "application/json"
+                "x-rapidapi-key": key,
+                "x-rapidapi-host": RAPID_HOST,
+                "Content-Type": "application/json"
             }
             
-            conn.request("POST", endpoint, payload, headers)
-            res = conn.getresponse()
-            data = res.read()
+            # Senin attığın requests yapısının AYNISI (json=payload kullanıyoruz)
+            # Timeout ekledim ki donmasın (10 sn)
+            response = requests.post(url, json=payload_dict, headers=headers, timeout=10)
             
-            try:
-                json_data = json.loads(data.decode("utf-8"))
-            except:
-                if chat_id: send_telegram_message(f"⚠️ Key {i+1}: Veri bozuk geldi (JSON değil).", chat_id)
+            # 1. Bağlantı Başarılı mı? (200 OK)
+            if response.status_code == 200:
+                return response.json()
+            
+            # 2. Limit Dolduysa (429) -> Diğer keye geç
+            if response.status_code == 429:
+                print(f"⚠️ Key {i+1} Limit Doldu. Sıradakine geçiliyor...")
                 continue
 
-            # BAŞARILI DURUM
-            if res.status == 200:
-                return json_data
-            
-            # HATA DURUMLARI
-            error_msg = json_data.get("message", "Bilinmeyen Hata")
-            
-            # Eğer kullanıcı bulunamadıysa DİĞER KEYLERİ DENEME, DİREKT ÇIK.
-            # Çünkü kullanıcı yoksa 100 tane key de olsa bulamaz.
-            if res.status == 404 or "Not Found" in str(error_msg):
-                if chat_id: send_telegram_message(f"❌ KULLANICI BULUNAMADI! ({TARGET_USERNAME})", chat_id)
-                return None
-
-            if chat_id: send_telegram_message(f"⚠️ Key {i+1} Başarısız: {res.status} - {error_msg}", chat_id)
+            # 3. Diğer Hatalar (Loglayıp devam edelim)
+            print(f"⚠️ API Hatası (Key {i+1}): {response.status_code} - {response.text}")
             continue
 
         except Exception as e:
-            if chat_id: send_telegram_message(f"⚠️ Key {i+1} Bağlantı Hatası: {str(e)}", chat_id)
+            print(f"❌ Bağlantı Hatası (Key {i+1}): {e}")
             continue
 
-    if chat_id: send_telegram_message("🚫 TÜM ANAHTARLAR DENENDİ, SONUÇ YOK!", chat_id)
+    print("❌ TÜM ANAHTARLAR DENENDİ, SONUÇ YOK!")
     return None
 
-# ... (Load/Save Data kısıımları aynı) ...
+# --- DATA YÖNETİMİ ---
 def load_data():
     if not os.path.exists("data.json"): return {}
     try:
@@ -106,48 +93,71 @@ def load_data():
 def save_data(data):
     with open("data.json", "w") as f: json.dump(data, f)
 
-# --- KOMUTLAR ---
-def handle_debug(chat_id):
-    send_telegram_message("🧪 Test isteği atılıyor...", chat_id)
-    # Test için 'instagram' kullanıcısını deniyoruz, çünkü kesin var.
-    data = call_rapid_api("/api/instagram/userInfo", {"username": "instagram"}, chat_id)
-    if data:
-        send_telegram_message("✅ API TEST BAŞARILI! (Instagram hesabı çekildi)", chat_id)
-    else:
-        send_telegram_message("❌ API TEST BAŞARISIZ.", chat_id)
-
+# --- KOMUT İŞLEYİCİLERİ ---
 def handle_takipci(chat_id):
-    send_telegram_message(f"🔍 Hedef: {TARGET_USERNAME} aranıyor...", chat_id)
+    send_telegram_message(f"🔍 {TARGET_USERNAME} analiz ediliyor...", chat_id)
     
-    data = call_rapid_api("/api/instagram/userInfo", {"username": TARGET_USERNAME}, chat_id)
+    # API Çağrısı
+    data = call_rapid_api("/api/instagram/userInfo", {"username": TARGET_USERNAME})
     
     if data:
-        # API bazen 'result', bazen 'data' döndürür, kontrol edelim
-        print(f"Gelen Veri: {data}") # Loga bas
+        # API bazen direkt data, bazen result döner. Garantileyelim.
         res = data if 'username' in data else data.get('result') or data.get('data')
         
         if not res:
-            send_telegram_message(f"❌ API cevap döndü ama içi boş! Kullanıcı adı yanlış olabilir mi? ({TARGET_USERNAME})", chat_id)
+            send_telegram_message(f"❌ Kullanıcı Bulunamadı! (Veri boş)", chat_id)
             return
 
         fol = res.get('follower_count', 0)
         fng = res.get('following_count', 0)
-        name = res.get('full_name', target_username)
+        name = res.get('full_name', TARGET_USERNAME)
         
         send_telegram_message(f"📊 RAPOR ({name}):\n👤 Takipçi: {fol}\n👉 Takip Edilen: {fng}", chat_id)
         
+        # Kaydet
         d = load_data()
         d["followers"] = fol
         d["following"] = fng
         save_data(d)
     else:
-        # Buraya düşerse call_rapid_api zaten hata mesajı atmış demektir
-        pass
+        send_telegram_message("❌ Veri çekilemedi (Tüm keyler hata verdi).", chat_id)
 
-# --- LOOP ---
+def handle_story(chat_id):
+    send_telegram_message("🔍 Hikaye kontrol...", chat_id)
+    data = call_rapid_api("/api/instagram/stories", {"username": TARGET_USERNAME})
+    
+    if data:
+        sl = data if isinstance(data, list) else data.get('result', []) or data.get('data', [])
+        count = len(sl)
+        if count > 0:
+            send_telegram_message(f"🔥 {count} Adet Aktif Hikaye Var!", chat_id)
+        else:
+            send_telegram_message("ℹ️ Aktif hikaye yok.", chat_id)
+        
+        d = load_data()
+        d["latest_story_count"] = count
+        save_data(d)
+    else:
+        send_telegram_message("❌ Veri çekilemedi.", chat_id)
+
+# --- OTOMATİK KONTROL ---
+def check_full_status():
+    data = call_rapid_api("/api/instagram/userInfo", {"username": TARGET_USERNAME})
+    if data:
+        res = data if 'username' in data else data.get('result') or data.get('data')
+        if res:
+            fol = res.get('follower_count', 0)
+            old = load_data().get("followers", 0)
+            if fol != old and old != 0:
+                diff = fol - old
+                send_telegram_message(f"🚨 TAKİPÇİ DEĞİŞTİ!\nYeni: {fol} ({diff:+})")
+                save_data({"followers": fol})
+
+# --- BOT DÖNGÜSÜ ---
 def bot_loop():
-    print("🚀 GEVEZE MOD BAŞLATILDI")
+    print("🚀 REQUESTS MODU BAŞLATILDI")
     last_update_id = 0
+    last_auto_check = time.time()
 
     while True:
         try:
@@ -160,14 +170,18 @@ def bot_loop():
                     text = message.get("text", "").lower()
                     chat_id = message.get("chat", {}).get("id")
                     
-                    if "/debug" in text:
-                        handle_debug(chat_id)
-                    elif "/takipci" in text:
+                    if "/takipci" in text:
                         handle_takipci(chat_id)
+                    elif "/story" in text:
+                        handle_story(chat_id)
                         
         except Exception as e:
-            print(f"Telegram Hatası: {e}")
-            time.sleep(2)
+            print(f"Loop Hatası: {e}")
+            time.sleep(1)
+        
+        if time.time() - last_auto_check >= CHECK_INTERVAL:
+            check_full_status()
+            last_auto_check = time.time()
         
         time.sleep(1)
 
